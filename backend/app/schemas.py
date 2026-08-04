@@ -46,3 +46,7 @@ class RecipeResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class InventoryUpdateZone(BaseModel):
+    zone: str

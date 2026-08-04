@@ -18,7 +18,7 @@ interface Recipe {
   rating?: string;
   url?: string;
   missing_ingredient_count: number;
-  ingredients?: string[]; // Full list of ingredients for dropdown view
+  ingredients?: string[];
 }
 
 export default function App() {
@@ -29,7 +29,7 @@ export default function App() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [maxTime, setMaxTime] = useState<number>(45);
   const [loading, setLoading] = useState<boolean>(false);
-  const [expandedRecipeId, setExpandedRecipeId] = useState<number | null>(null); // Track open accordion
+  const [expandedRecipeId, setExpandedRecipeId] = useState<number | null>(null);
   const userId = 1;
 
   const getSingularStem = (name: string): string => {
@@ -186,6 +186,15 @@ export default function App() {
   const toggleRecipeDropdown = (id: number) => {
     setExpandedRecipeId(prev => (prev === id ? null : id));
   };
+
+  // Helper to split paragraph instructions into clean numbered step lines
+  const formatInstructions = (text: string) => {
+      if (!text) return [];
+      return text
+        .split(/(?<=[.!?])\s+|\n+/)
+        .map(step => step.trim())
+        .filter(step => step.length > 3 && !step.toLowerCase().startsWith('natalie') && step !== '•');
+    };
 
   return (
     <div className="min-h-screen bg-[#FBF9F5] text-[#2C2A29] font-sans antialiased px-6 py-10 selection:bg-[#E3DCD2]">
@@ -451,14 +460,14 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 2: Recipe Matcher Page with Accordion Dropdown */}
+        {/* Tab 2: Recipe Matcher Page with Formatted Dropdown */}
         {activeTab === 'recipes' && (
           <div className="space-y-8">
             
             <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-sm">
               <div>
                 <h2 className="text-lg font-serif text-[#1A1817]">Matched Recipes</h2>
-                <p className="text-xs text-[#706B65]">Click any recipe card below to expand ingredients and instructions.</p>
+                <p className="text-xs text-[#706B65]">Click any recipe card below to view its ingredients and formatted step-by-step instructions.</p>
               </div>
               <div className="flex items-center gap-2 bg-[#FBF9F5] p-1.5 rounded-xl border border-[#E5DFD4]">
                 <label className="text-[11px] font-medium text-[#706B65] px-2">Max Time:</label>
@@ -491,6 +500,8 @@ export default function App() {
               <div className="space-y-4">
                 {recipes.map((recipe) => {
                   const isExpanded = expandedRecipeId === recipe.id;
+                  const formattedSteps = formatInstructions(recipe.instructions);
+
                   return (
                     <div 
                       key={recipe.id} 
@@ -521,24 +532,40 @@ export default function App() {
                       {/* Expandable Dropdown Content */}
                       {isExpanded && (
                         <div 
-                          className="mt-5 pt-5 border-t border-[#EFECE6] space-y-4 animate-fadeIn cursor-default"
-                          onClick={(e) => e.stopPropagation()} // Prevent collapse when interacting inside details
+                          className="mt-6 pt-6 border-t border-[#EFECE6] space-y-6 animate-fadeIn cursor-default"
+                          onClick={(e) => e.stopPropagation()}
                         >
+                          {/* Ingredients List */}
                           {recipe.ingredients && recipe.ingredients.length > 0 && (
                             <div>
-                              <h4 className="text-xs font-bold uppercase tracking-wider text-[#706B65] mb-2">Ingredients:</h4>
-                              <ul className="list-disc list-inside text-xs text-[#4A453F] space-y-1 bg-[#FBF9F5] p-4 rounded-xl border border-[#EFECE6]">
+                              <h4 className="text-xs font-bold uppercase tracking-wider text-[#706B65] mb-3">Ingredients Needed:</h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-[#FBF9F5] p-4 rounded-xl border border-[#EFECE6]">
                                 {recipe.ingredients.map((ing, idx) => (
-                                  <li key={idx}>{ing}</li>
+                                  <div key={idx} className="flex items-start gap-2 text-xs text-[#4A453F]">
+                                    <span className="text-[#B38B2D] font-bold">•</span>
+                                    <span>{ing}</span>
+                                  </div>
                                 ))}
-                              </ul>
+                              </div>
                             </div>
                           )}
 
+                          {/* Beautiful Step-by-Step Formatted Instructions */}
                           <div>
-                            <h4 className="text-xs font-bold uppercase tracking-wider text-[#706B65] mb-2">Instructions:</h4>
-                            <div className="text-[#4A453F] text-xs leading-relaxed bg-[#FBF9F5] p-4 rounded-xl border border-[#EFECE6] max-h-48 overflow-y-auto whitespace-pre-line">
-                              {recipe.instructions}
+                            <h4 className="text-xs font-bold uppercase tracking-wider text-[#706B65] mb-3">Step-by-Step Instructions:</h4>
+                            <div className="space-y-3 bg-[#FBF9F5] p-5 rounded-xl border border-[#EFECE6]">
+                              {formattedSteps.length > 0 ? (
+                                formattedSteps.map((step, idx) => (
+                                  <div key={idx} className="flex items-start gap-3 text-xs text-[#4A453F] leading-relaxed">
+                                    <span className="bg-[#E8E2D5] text-[#1A1817] font-semibold w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px]">
+                                      {idx + 1}
+                                    </span>
+                                    <p className="flex-1 pt-0.5">{step}</p>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-xs text-[#4A453F]">{recipe.instructions}</p>
+                              )}
                             </div>
                           </div>
 
