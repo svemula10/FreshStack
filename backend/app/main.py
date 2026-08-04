@@ -36,6 +36,10 @@ def get_matched_recipes(
             if word.endswith('s') and len(word) > 3:
                 user_pantry_tokens.add(word[:-1])
 
+    # If inventory is empty, return no recipes immediately
+    if not user_inventory:
+        return []
+
     # 2. Fetch all recipes from database
     all_recipes = db.query(models.Recipe).all()
     unique_matched_recipes_dict = {}
@@ -53,7 +57,7 @@ def get_matched_recipes(
             continue
 
         ingredient_list = []
-        matched_pantry_count = 0
+        matched_pantry_count = 0  # Tracks how many user items match this recipe
 
         for ing in raw_ingredients:
             ing_text = ""
@@ -86,18 +90,17 @@ def get_matched_recipes(
                 if has_match:
                     matched_pantry_count += 1
 
-        # Calculate missing ingredients against pantry tokens strictly
+        # --- PRECISE MISSING INGREDIENT COUNTING ---
         missing_count = 0
         for ing_str in ingredient_list:
             lower_str = ing_str.lower()
             has_match = any(token in lower_str for token in user_pantry_tokens if len(token) > 2)
             
-            # Restrict freebies ONLY to true basic culinary environment elements (water, salt)
-            # Milk, sugar, butter, flour etc. MUST now be owned by the user!
-            is_pantry_staple = any(staple in lower_str for staple in ['water', 'salt'])
+            # Only true non-food physical elements like water or salt are freebies.
+            is_culinary_element = any(element in lower_str for element in ['water', 'salt'])
             is_optional = 'optional' in lower_str
 
-            if not has_match and not is_optional and not is_pantry_staple:
+            if not has_match and not is_optional and not is_culinary_element:
                 missing_count += 1
 
         # Instructions cleanup
@@ -115,16 +118,13 @@ def get_matched_recipes(
 
         final_instructions_block = "\n".join(filtered_instructions)
 
-        # Allow recipes missing up to 2 ingredients, but require at least some matching relevance if inventory isn't empty
+        # CRITICAL RELEVANCE RULE: 
+        # 1. The recipe must have at least ONE ingredient matching what the user actually owns (matched_pantry_count > 0).
+        #    This prevents orange juice (requiring oranges) from showing up if the user only has milk.
+        # 2. Missing count must be within reasonable threshold (e.g. missing <= 2 items).
         MAX_MISSING_ALLOWED = 2
-        
-        # If user inventory is completely empty, require missing_count == 0 to show anything
-        if len(user_inventory) == 0:
-            allowed_missing = 0
-        else:
-            allowed_missing = MAX_MISSING_ALLOWED
 
-        if missing_count <= allowed_missing and ingredient_list:
+        if matched_pantry_count > 0 and missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
             unique_matched_recipes_dict[normalized_title] = {
                 "id": recipe.id,
                 "title": recipe.title,
@@ -139,6 +139,7 @@ def get_matched_recipes(
                 "ingredients": ingredient_list
             }
 
+    # Sort top-to-bottom by fewest missing ingredients, then most pantry overlap, then highest rating
     sorted_recipes = sorted(
         unique_matched_recipes_dict.values(),
         key=lambda r: (
