@@ -38,11 +38,16 @@ def get_matched_recipes(
 
     # 2. Fetch all recipes from database
     all_recipes = db.query(models.Recipe).all()
-    matched_recipes = []
-    seen_recipe_ids = set()
+    
+    # Use a dictionary keyed by normalized recipe TITLE to completely eliminate name duplicates
+    unique_matched_recipes_dict = {}
 
     for recipe in all_recipes:
-        if recipe.id in seen_recipe_ids:
+        if not recipe.title:
+            continue
+            
+        normalized_title = recipe.title.strip().lower()
+        if normalized_title in unique_matched_recipes_dict:
             continue
 
         raw_ingredients = recipe.ingredients if hasattr(recipe, 'ingredients') else []
@@ -61,13 +66,11 @@ def get_matched_recipes(
             else:
                 ing_text = str(ing).strip()
 
-            # Handle multi-line database blobs or relational lines
             lines = re.split(r'\n+|•', ing_text)
             for line in lines:
                 cleaned_line = line.strip()
                 cleaned_lower = cleaned_line.lower()
 
-                # Filter out useless database fragments, dangling modifiers, or standalone noise words
                 if (not cleaned_line or 
                     cleaned_line in ["•", "-", "*"] or 
                     len(cleaned_line) <= 1 or
@@ -76,7 +79,6 @@ def get_matched_recipes(
                     cleaned_lower.endswith(":")):
                     continue
 
-                # Strip leading/trailing bullet marks
                 final_ing = re.sub(r'^[•\-\*\s]+|[•\-\*\s]+$', '', cleaned_line).strip()
                 if final_ing and final_ing not in ingredient_list:
                     ingredient_list.append(final_ing)
@@ -94,16 +96,13 @@ def get_matched_recipes(
 
         # --- SMART INSTRUCTION CLEANING ---
         raw_instructions = recipe.instructions or ""
-        # Remove photo credits, contributor signatures, or photo by lines dynamically
         cleaned_instructions = re.sub(r'(?:Photo by|Recipe courtesy of|Submitted by|Copyright).*', '', raw_instructions, flags=re.IGNORECASE)
         
-        # Also split and filter out any stray single-line names or photo noise fragments
         instruction_lines = cleaned_instructions.split('\n')
         filtered_instructions = []
         for line in instruction_lines:
             line_str = line.strip()
             line_lower = line_str.lower()
-            # Skip lines that look like photo credits, usernames, or bare attribution names
             if (not line_str or 
                 "photo by" in line_lower or 
                 line_lower.startswith("photo") or 
@@ -113,10 +112,10 @@ def get_matched_recipes(
 
         final_instructions_block = "\n".join(filtered_instructions)
 
-        MAX_MISSING_ALLOWED = 2
+        MAX_MISSING_ALLOWED = 3
         if missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
-            seen_recipe_ids.add(recipe.id)
-            matched_recipes.append({
+            # Key by normalized title so identical recipe names never repeat
+            unique_matched_recipes_dict[normalized_title] = {
                 "id": recipe.id,
                 "title": recipe.title,
                 "instructions": final_instructions_block,
@@ -127,9 +126,9 @@ def get_matched_recipes(
                 "url": recipe.url,
                 "missing_ingredient_count": missing_count,
                 "ingredients": ingredient_list
-            })
+            }
 
-    return matched_recipes
+    return list(unique_matched_recipes_dict.values())
 
 
 @app.post("/ingredients/", response_model=schemas.IngredientResponse)
