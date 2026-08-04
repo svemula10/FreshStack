@@ -4,6 +4,8 @@ interface InventoryItem {
   id: number;
   user_id: number;
   ingredient_id: number;
+  ingredient_name?: string;
+  zone?: 'fridge' | 'cabinet' | 'spices';
 }
 
 interface Recipe {
@@ -15,21 +17,19 @@ interface Recipe {
   servings?: string;
   rating?: string;
   url?: string;
-  match_score: number;
   missing_ingredient_count: number;
-  ingredients: string[];
 }
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'storage' | 'recipes'>('storage');
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [newIngredientId, setNewIngredientId] = useState<string>('');
+  const [ingredientInput, setIngredientInput] = useState<string>('');
+  const [selectedZone, setSelectedZone] = useState<'fridge' | 'cabinet' | 'spices'>('fridge');
   const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [maxTime, setMaxTime] = useState<number>(60);
+  const [maxTime, setMaxTime] = useState<number>(45);
   const [loading, setLoading] = useState<boolean>(false);
   const userId = 1;
 
-  // Fetch current user inventory
   const fetchInventory = async () => {
     try {
       const res = await fetch(`http://127.0.0.1:8000/inventory/${userId}`);
@@ -46,27 +46,33 @@ export default function App() {
     fetchInventory();
   }, []);
 
-  // Add ingredient to stock
   const handleAddIngredient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newIngredientId) return;
+    if (!ingredientInput.trim()) return;
 
     try {
-      const res = await fetch(`http://127.0.0.1:8000/inventory/`, {
+      const ingRes = await fetch(`http://127.0.0.1:8000/ingredients/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, ingredient_id: parseInt(newIngredientId) })
+        body: JSON.stringify({ name: ingredientInput.trim().toLowerCase(), category: selectedZone })
       });
-      if (res.ok) {
-        setNewIngredientId('');
+      
+      if (ingRes.ok) {
+        const ingredientData = await ingRes.json();
+        await fetch(`http://127.0.0.1:8000/inventory/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, ingredient_id: ingredientData.id })
+        });
+
+        setIngredientInput('');
         fetchInventory();
       }
     } catch (err) {
-      console.error("Failed to add inventory item", err);
+      console.error("Failed to add ingredient", err);
     }
   };
 
-  // Fetch matched recipes based on inventory and time limit
   const fetchMatchedRecipes = async () => {
     setLoading(true);
     setActiveTab('recipes');
@@ -84,150 +90,214 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans p-6">
+    <div className="min-h-screen bg-[#FBF9F5] text-[#2C2A29] font-sans antialiased px-6 py-10 selection:bg-[#E3DCD2]">
       <div className="max-w-4xl mx-auto">
-        {/* Header & Navigation */}
-        <header className="flex justify-between items-center mb-8 border-b border-zinc-800 pb-4">
+        
+        {/* Calm, Clean Header */}
+        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-12 border-b border-[#E8E2D5] pb-6 gap-6">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-emerald-400">FreshStack</h1>
-            <p className="text-zinc-400 text-sm">Algorithmic Pantry & Deterministic Recipe Matcher</p>
+            <h1 className="text-2xl font-serif tracking-tight text-[#1A1817]">FreshStack</h1>
+            <p className="text-sm text-[#706B65] mt-0.5">Your thoughtful virtual pantry and recipe companion</p>
           </div>
-          <div className="flex gap-2 bg-zinc-900 p-1 rounded-xl border border-zinc-800">
+
+          <nav className="flex gap-2 bg-[#F2EDE4] p-1 rounded-full border border-[#E5DFD4]">
             <button
               onClick={() => setActiveTab('storage')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'storage' ? 'bg-emerald-600 text-white' : 'text-zinc-400 hover:text-white'
+              className={`px-5 py-2 rounded-full text-xs font-medium transition ${
+                activeTab === 'storage' 
+                  ? 'bg-white text-[#1A1817] shadow-sm' 
+                  : 'text-[#706B65] hover:text-[#1A1817]'
               }`}
             >
-              🍳 Kitchen Storage
+              Kitchen Storage
             </button>
             <button
               onClick={fetchMatchedRecipes}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'recipes' ? 'bg-emerald-600 text-white' : 'text-zinc-400 hover:text-white'
+              className={`px-5 py-2 rounded-full text-xs font-medium transition ${
+                activeTab === 'recipes' 
+                  ? 'bg-white text-[#1A1817] shadow-sm' 
+                  : 'text-[#706B65] hover:text-[#1A1817]'
               }`}
             >
-              ✨ Find Recipes
+              Find Recipes
             </button>
-          </div>
+          </nav>
         </header>
 
-        {/* Tab 1: Storage / Inventory Page */}
+        {/* Tab 1: Storage Page */}
         {activeTab === 'storage' && (
-          <div className="space-y-6">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
-              <h2 className="text-xl font-semibold mb-4 text-emerald-300">Add Items to Your Kitchen</h2>
-              <form onSubmit={handleAddIngredient} className="flex gap-3">
+          <div className="space-y-10">
+            
+            {/* Minimalist Input Card */}
+            <div className="bg-white border border-[#E8E2D5] rounded-2xl p-8 shadow-sm">
+              <h2 className="text-lg font-serif text-[#1A1817] mb-2">Add to Pantry</h2>
+              <p className="text-xs text-[#706B65] mb-6">Type what you brought home to keep your virtual kitchen updated.</p>
+              
+              <form onSubmit={handleAddIngredient} className="flex flex-col sm:flex-row gap-3">
                 <input
-                  type="number"
-                  placeholder="Enter Ingredient ID (e.g., 1 for butter)"
-                  value={newIngredientId}
-                  onChange={(e) => setNewIngredientId(e.target.value)}
-                  className="flex-1 bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500"
+                  type="text"
+                  placeholder="e.g. butter, garlic, fresh basil..."
+                  value={ingredientInput}
+                  onChange={(e) => setIngredientInput(e.target.value)}
+                  className="flex-1 bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#1A1817] placeholder-[#A39D94] focus:outline-none focus:border-[#706B65] text-sm"
                 />
+                
+                <select
+                  value={selectedZone}
+                  onChange={(e) => setSelectedZone(e.target.value as any)}
+                  className="bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#706B65] focus:outline-none focus:border-[#706B65] text-xs font-medium"
+                >
+                  <option value="fridge">Refrigerator</option>
+                  <option value="cabinet">Cabinets</option>
+                  <option value="spices">Spice Drawer</option>
+                </select>
+
                 <button
                   type="submit"
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-6 py-3 rounded-xl transition shadow-lg shadow-emerald-900/20"
+                  className="bg-[#2C2A29] hover:bg-[#1A1817] text-white text-xs font-medium px-6 py-3 rounded-xl transition"
                 >
-                  Store Item
+                  Save Item
                 </button>
               </form>
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
-              <h2 className="text-xl font-semibold mb-4">Current Household Inventory</h2>
-              {inventory.length === 0 ? (
-                <p className="text-zinc-500 italic">Your kitchen storage is currently empty. Add some ingredients above!</p>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {inventory.map((item, idx) => (
-                    <div key={idx} className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl flex items-center justify-between">
-                      <span className="font-medium text-zinc-200">Ingredient ID: {item.ingredient_id}</span>
-                      <span className="text-xs bg-emerald-950 text-emerald-400 px-2 py-1 rounded-md border border-emerald-800">In Stock</span>
-                    </div>
-                  ))}
+            {/* Clean Section Containers */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              
+              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm">
+                <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Refrigerator</h3>
+                <p className="text-[11px] text-[#8C867E] mb-4">Perishables & fresh produce</p>
+                <div className="space-y-2">
+                  {inventory.length === 0 ? (
+                    <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
+                  ) : (
+                    inventory.map((item, idx) => (
+                      <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
+                        <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
+                        <span className="text-[10px] text-[#706B65]">Stored</span>
+                      </div>
+                    ))
+                  )}
                 </div>
-              )}
-
-              <div className="mt-8 text-center">
-                <button
-                  onClick={fetchMatchedRecipes}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-8 py-4 rounded-xl shadow-lg transition w-full sm:w-auto"
-                >
-                  Ready to Cook? Find Recipes Based On What I Have →
-                </button>
               </div>
+
+              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm">
+                <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Cabinets</h3>
+                <p className="text-[11px] text-[#8C867E] mb-4">Grains & dry staples</p>
+                <div className="space-y-2">
+                  {inventory.length === 0 ? (
+                    <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
+                  ) : (
+                    inventory.map((item, idx) => (
+                      <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
+                        <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
+                        <span className="text-[10px] text-[#706B65]">Stored</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm">
+                <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Spice Drawer</h3>
+                <p className="text-[11px] text-[#8C867E] mb-4">Herbs & seasonings</p>
+                <div className="space-y-2">
+                  {inventory.length === 0 ? (
+                    <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
+                  ) : (
+                    inventory.map((item, idx) => (
+                      <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
+                        <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
+                        <span className="text-[10px] text-[#706B65]">Stored</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
             </div>
+
+            {/* Seamless Action Flow */}
+            <div className="pt-2 text-center">
+              <button
+                onClick={fetchMatchedRecipes}
+                className="bg-[#2C2A29] hover:bg-[#1A1817] text-white text-xs font-medium px-8 py-4 rounded-xl shadow-sm transition"
+              >
+                Find Recipes You Can Make →
+              </button>
+            </div>
+
           </div>
         )}
 
-        {/* Tab 2: Recipe Matcher Results Page */}
+        {/* Tab 2: Recipe Matcher Page */}
         {activeTab === 'recipes' && (
-          <div className="space-y-6">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div className="space-y-8">
+            
+            <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-sm">
               <div>
-                <h2 className="text-xl font-semibold text-emerald-300">Recipe Matcher Engine</h2>
-                <p className="text-zinc-400 text-sm">Filtered by your active inventory and time limit constraints.</p>
+                <h2 className="text-lg font-serif text-[#1A1817]">Matched Recipes</h2>
+                <p className="text-xs text-[#706B65]">Filtered precisely by your available pantry and time constraints.</p>
               </div>
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-zinc-300">Max Time (mins):</label>
+              <div className="flex items-center gap-2 bg-[#FBF9F5] p-1.5 rounded-xl border border-[#E5DFD4]">
+                <label className="text-[11px] font-medium text-[#706B65] px-2">Max Time:</label>
                 <input
                   type="number"
                   value={maxTime}
                   onChange={(e) => setMaxTime(Number(e.target.value))}
-                  className="w-24 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-center"
+                  className="w-16 bg-white border border-[#E5DFD4] rounded-lg px-2 py-1 text-[#1A1817] text-center text-xs font-medium focus:outline-none"
                 />
+                <span className="text-[11px] text-[#8C867E] pr-2">m</span>
                 <button
                   onClick={fetchMatchedRecipes}
-                  className="bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-sm font-medium transition border border-zinc-700"
+                  className="bg-[#2C2A29] text-white px-3 py-1.5 rounded-lg text-xs transition"
                 >
-                  Apply
+                  Update
                 </button>
               </div>
             </div>
 
             {loading ? (
-                <div className="text-center py-12 text-zinc-500">Computing deterministic recipe matches...</div>
-              ) : recipes.length === 0 ? (
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center text-zinc-400">
-                  <p className="text-lg font-medium mb-2">No matching recipes found.</p>
-                  <p className="text-sm text-zinc-500">Try adding more ingredients to your kitchen storage or increasing your time limit.</p>
-                </div>
+              <div className="text-center py-16 text-[#8C867E] text-xs">
+                Searching recipe sets...
+              </div>
+            ) : recipes.length === 0 ? (
+              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-16 text-center text-[#706B65] space-y-2 shadow-sm">
+                <p className="text-sm font-medium text-[#1A1817]">No recipes found.</p>
+                <p className="text-xs text-[#8C867E]">Try adding more items to your storage or increasing the time filter.</p>
+              </div>
             ) : (
-              <div className="grid grid-cols-1 gap-6">
+              <div className="space-y-4">
                 {recipes.map((recipe) => (
-                  <div key={recipe.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4">
-                    <div className="flex justify-between items-start">
+                  <div key={recipe.id} className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm space-y-3">
+                    <div className="flex justify-between items-start gap-4">
                       <div>
-                        <h3 className="text-xl font-bold text-white">{recipe.title}</h3>
-                        <div className="flex gap-4 text-xs text-zinc-400 mt-1">
+                        <h3 className="text-lg font-serif text-[#1A1817] mb-1">{recipe.title}</h3>
+                        <div className="flex gap-4 text-xs text-[#8C867E]">
                           {recipe.prep_time && <span>Prep: {recipe.prep_time}</span>}
                           {recipe.cook_time && <span>Cook: {recipe.cook_time}</span>}
                           {recipe.servings && <span>Servings: {recipe.servings}</span>}
-                          {recipe.rating && <span className="text-amber-400">★ {recipe.rating}</span>}
+                          {recipe.rating && <span className="text-[#B38B2D]">★ {recipe.rating}</span>}
                         </div>
                       </div>
-                      <span className="bg-emerald-950 text-emerald-400 border border-emerald-800 px-3 py-1 rounded-full text-xs font-semibold">
-                        Missing: {recipe.missing_ingredient_count} items
+                      <span className="bg-[#F2EDE4] text-[#4A453F] border border-[#E5DFD4] px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap">
+                        Missing: {recipe.missing_ingredient_count}
                       </span>
                     </div>
 
-                    <div>
-                      <h4 className="text-sm font-semibold text-zinc-300 mb-1">Instructions:</h4>
-                      <p className="text-zinc-400 text-sm leading-relaxed bg-zinc-950 p-4 rounded-xl border border-zinc-800 max-h-40 overflow-y-auto">
-                        {recipe.instructions}
-                      </p>
-                    </div>
+                    <p className="text-[#4A453F] text-xs leading-relaxed bg-[#FBF9F5] p-4 rounded-xl border border-[#EFECE6] max-h-32 overflow-y-auto">
+                      {recipe.instructions}
+                    </p>
 
                     {recipe.url && (
-                      <div className="pt-2">
+                      <div>
                         <a
                           href={recipe.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-emerald-400 hover:text-emerald-300 text-sm font-medium inline-flex items-center gap-1 underline"
+                          className="text-[#59524A] hover:text-[#1A1817] text-xs font-medium underline inline-flex items-center gap-1"
                         >
-                          View Original Recipe Source ↗
+                          Original Recipe ↗
                         </a>
                       </div>
                     )}
@@ -235,8 +305,10 @@ export default function App() {
                 ))}
               </div>
             )}
+
           </div>
         )}
+
       </div>
     </div>
   );
