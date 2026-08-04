@@ -38,8 +38,6 @@ def get_matched_recipes(
 
     # 2. Fetch all recipes from database
     all_recipes = db.query(models.Recipe).all()
-    
-    # Use a dictionary keyed by normalized recipe TITLE to completely eliminate name duplicates
     unique_matched_recipes_dict = {}
 
     for recipe in all_recipes:
@@ -55,8 +53,8 @@ def get_matched_recipes(
             continue
 
         ingredient_list = []
+        matched_pantry_count = 0
 
-        # --- SMART INGREDIENT CLEANING ---
         for ing in raw_ingredients:
             ing_text = ""
             if hasattr(ing, 'name') and ing.name:
@@ -83,18 +81,26 @@ def get_matched_recipes(
                 if final_ing and final_ing not in ingredient_list:
                     ingredient_list.append(final_ing)
 
-        # Calculate missing ingredients against pantry tokens
+                # Check if user has this ingredient in their inventory
+                has_match = any(token in cleaned_lower for token in user_pantry_tokens if len(token) > 2)
+                if has_match:
+                    matched_pantry_count += 1
+
+        # Calculate missing ingredients against pantry tokens strictly
         missing_count = 0
         for ing_str in ingredient_list:
             lower_str = ing_str.lower()
             has_match = any(token in lower_str for token in user_pantry_tokens if len(token) > 2)
-            is_pantry_staple = any(staple in lower_str for staple in ['sugar', 'salt', 'water', 'puff pastry', 'ice cream', 'whipped cream', 'flour', 'milk', 'pepper', 'oil', 'butter', 'cinnamon'])
+            
+            # Restrict freebies ONLY to true basic culinary environment elements (water, salt)
+            # Milk, sugar, butter, flour etc. MUST now be owned by the user!
+            is_pantry_staple = any(staple in lower_str for staple in ['water', 'salt'])
             is_optional = 'optional' in lower_str
 
             if not has_match and not is_optional and not is_pantry_staple:
                 missing_count += 1
 
-        # --- SMART INSTRUCTION CLEANING ---
+        # Instructions cleanup
         raw_instructions = recipe.instructions or ""
         cleaned_instructions = re.sub(r'(?:Photo by|Recipe courtesy of|Submitted by|Copyright).*', '', raw_instructions, flags=re.IGNORECASE)
         
@@ -103,18 +109,22 @@ def get_matched_recipes(
         for line in instruction_lines:
             line_str = line.strip()
             line_lower = line_str.lower()
-            if (not line_str or 
-                "photo by" in line_lower or 
-                line_lower.startswith("photo") or 
-                len(line_str) < 3):
+            if (not line_str or "photo by" in line_lower or line_lower.startswith("photo") or len(line_str) < 3):
                 continue
             filtered_instructions.append(line_str)
 
         final_instructions_block = "\n".join(filtered_instructions)
 
-        MAX_MISSING_ALLOWED = 3
-        if missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
-            # Key by normalized title so identical recipe names never repeat
+        # Allow recipes missing up to 2 ingredients, but require at least some matching relevance if inventory isn't empty
+        MAX_MISSING_ALLOWED = 2
+        
+        # If user inventory is completely empty, require missing_count == 0 to show anything
+        if len(user_inventory) == 0:
+            allowed_missing = 0
+        else:
+            allowed_missing = MAX_MISSING_ALLOWED
+
+        if missing_count <= allowed_missing and ingredient_list:
             unique_matched_recipes_dict[normalized_title] = {
                 "id": recipe.id,
                 "title": recipe.title,
@@ -125,10 +135,20 @@ def get_matched_recipes(
                 "rating": recipe.rating,
                 "url": recipe.url,
                 "missing_ingredient_count": missing_count,
+                "matched_pantry_count": matched_pantry_count,
                 "ingredients": ingredient_list
             }
 
-    return list(unique_matched_recipes_dict.values())
+    sorted_recipes = sorted(
+        unique_matched_recipes_dict.values(),
+        key=lambda r: (
+            r["missing_ingredient_count"], 
+            -r["matched_pantry_count"], 
+            -float(r["rating"]) if r.get("rating") and str(r["rating"]).replace('.', '', 1).isdigit() else 0.0
+        )
+    )
+
+    return sorted_recipes
 
 
 @app.post("/ingredients/", response_model=schemas.IngredientResponse)
