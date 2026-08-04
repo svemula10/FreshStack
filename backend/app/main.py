@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
 from .database import get_db, redis_client, engine, Base
@@ -8,19 +9,38 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="FreshStack API", version="1.0.0")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.get("/recipes/match/{user_id}", response_model=List[schemas.RecipeResponse])
 def get_matched_recipes(user_id: int, db: Session = Depends(get_db)):
-    # Check Redis cache for fast user inventory state lookup
+    user_inventory_ids = set()
     cache_key = f"user_inventory:{user_id}"
-    cached_inventory = redis_client.smembers(cache_key)
     
-    if cached_inventory:
-        user_inventory_ids = {int(i) for i in cached_inventory}
-    else:
+    # Try fetching from Redis cache, fallback gracefully if Redis is offline
+    try:
+        cached_inventory = redis_client.smembers(cache_key)
+        if cached_inventory:
+            user_inventory_ids = {int(i) for i in cached_inventory}
+    except Exception:
+        print("Warning: Redis is offline. Skipping cache layer.")
+
+    # If cache was empty or Redis failed, fetch directly from SQLite database
+    if not user_inventory_ids:
         items = db.query(models.InventoryItem).filter(models.InventoryItem.user_id == user_id).all()
         user_inventory_ids = {item.ingredient_id for item in items}
+        
+        # Try updating cache if possible
         if user_inventory_ids:
-            redis_client.sadd(cache_key, *user_inventory_ids)
+            try:
+                redis_client.sadd(cache_key, *user_inventory_ids)
+            except Exception:
+                pass
             
     recipes = db.query(models.Recipe).all()
     matched = matching_engine.match_recipes(user_inventory_ids, recipes)
@@ -33,8 +53,10 @@ def add_inventory(item: schemas.InventoryCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_item)
     
-    # Invalidate / update Redis cache
-    cache_key = f"user_id:{item.user_id}"
-    redis_client.sadd(f"user_inventory:{item.user_id}", item.ingredient_id)
+    # Try updating Redis cache, ignore errors if offline
+    try:
+        redis_client.sadd(f"user_inventory:{item.user_id}", item.ingredient_id)
+    except Exception:
+        pass
     
     return item

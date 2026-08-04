@@ -3,10 +3,12 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 import redis
 import os
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/freshstack")
+# Zero-config SQLite database stored locally in your project folder
+DATABASE_URL = "sqlite:///./freshstack.db"
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-engine = create_engine(DATABASE_URL)
+# SQLite requires check_same_thread=False for FastAPI multithreading
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
