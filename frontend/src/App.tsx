@@ -24,10 +24,20 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'storage' | 'recipes'>('storage');
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [ingredientInput, setIngredientInput] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [maxTime, setMaxTime] = useState<number>(45);
   const [loading, setLoading] = useState<boolean>(false);
   const userId = 1;
+
+  // Helper to get base stem for singular/plural comparison (e.g. apples -> apple)
+  const getSingularStem = (name: string): string => {
+    let lower = name.trim().toLowerCase();
+    if (lower.endsWith('s') && !lower.endsWith('ss') && lower.length > 3) {
+      lower = lower.slice(0, -1);
+    }
+    return lower;
+  };
 
   // Smart helper to automatically determine zone based on ingredient name
   const getDefaultZone = (name: string): 'fridge' | 'cabinet' | 'spices' => {
@@ -45,7 +55,6 @@ export default function App() {
       const res = await fetch(`http://127.0.0.1:8000/inventory/${userId}`);
       if (res.ok) {
         const data = await res.json();
-        // Attach smart zones if missing from backend record
         const enriched = data.map((item: any) => ({
           ...item,
           zone: item.zone || getDefaultZone(item.ingredient_name || `item-${item.ingredient_id}`)
@@ -63,16 +72,36 @@ export default function App() {
 
   const handleAddIngredient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ingredientInput.trim()) return;
+    const rawInput = ingredientInput.trim();
+    if (!rawInput) return;
 
-    const trimmedName = ingredientInput.trim().toLowerCase();
-    const assignedZone = getDefaultZone(trimmedName);
+    setErrorMessage(null); // Clear previous error
+    const inputStem = getSingularStem(rawInput);
+
+    const existingItem = inventory.find(item => {
+      const existingName = item.ingredient_name || '';
+      return getSingularStem(existingName) === inputStem;
+    });
+
+    if (existingItem) {
+      if (rawInput.toLowerCase().endsWith('s') && !(existingItem.ingredient_name || '').toLowerCase().endsWith('s')) {
+        setInventory(prev =>
+          prev.map(item => item.id === existingItem.id ? { ...item, ingredient_name: rawInput.toLowerCase() } : item)
+        );
+      } else {
+        setErrorMessage(`"${rawInput}" is already in your kitchen storage!`);
+      }
+      setIngredientInput('');
+      return;
+    }
+
+    const assignedZone = getDefaultZone(rawInput);
 
     try {
       const ingRes = await fetch(`http://127.0.0.1:8000/ingredients/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, category: assignedZone })
+        body: JSON.stringify({ name: rawInput.toLowerCase(), category: assignedZone })
       });
       
       if (ingRes.ok) {
@@ -87,14 +116,13 @@ export default function App() {
         if (invRes.ok) {
           const newInvItem = await invRes.json();
           
-          // Optimistically append the item with its name so it shows up instantly without waiting for a re-fetch
           setInventory(prev => [
             ...prev,
             {
               id: newInvItem.id || Date.now(),
               user_id: userId,
               ingredient_id: ingredientData.id,
-              ingredient_name: trimmedName,
+              ingredient_name: rawInput.toLowerCase(),
               zone: assignedZone
             }
           ]);
@@ -108,9 +136,7 @@ export default function App() {
     }
   };
 
-  // Delete inventory item handler
   const handleDeleteIngredient = async (inventoryId: number) => {
-    // Optimistically update UI immediately
     setInventory(prev => prev.filter(item => item.id !== inventoryId));
 
     try {
@@ -119,11 +145,10 @@ export default function App() {
       });
     } catch (err) {
       console.error("Failed to delete inventory item from backend", err);
-      fetchInventory(); // Revert on failure
+      fetchInventory();
     }
   };
 
-  // Drag and Drop handlers to move items between zones
   const handleDragStart = (e: React.DragEvent, itemId: number) => {
     e.dataTransfer.setData('text/plain', itemId.toString());
   };
@@ -162,7 +187,7 @@ export default function App() {
     <div className="min-h-screen bg-[#FBF9F5] text-[#2C2A29] font-sans antialiased px-6 py-10 selection:bg-[#E3DCD2]">
       <div className="max-w-4xl mx-auto">
         
-        {/* Header with Fresh Ingredients Image */}
+        {/* Header */}
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 border-b border-[#E8E2D5] pb-6 gap-6">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl overflow-hidden border border-[#E5DFD4] shadow-sm flex-shrink-0">
@@ -218,14 +243,17 @@ export default function App() {
 
               <div className="relative z-10 max-w-lg">
                 <h2 className="text-lg font-serif text-[#1A1817] mb-2">Add to Pantry</h2>
-                <p className="text-xs text-[#706B65] mb-6">Type what you bought home. FreshStack will automatically place it in the correct zone!</p>
+                <p className="text-xs text-[#706B65] mb-4">Type what you bought home. FreshStack will automatically place it in the correct zone!</p>
                 
                 <form onSubmit={handleAddIngredient} className="flex flex-col sm:flex-row gap-3">
                   <input
                     type="text"
                     placeholder="e.g. butter, garlic, fresh basil..."
                     value={ingredientInput}
-                    onChange={(e) => setIngredientInput(e.target.value)}
+                    onChange={(e) => {
+                      setIngredientInput(e.target.value);
+                      if (errorMessage) setErrorMessage(null); // Clear warning as soon as typing resumes
+                    }}
                     className="flex-1 bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#1A1817] placeholder-[#A39D94] focus:outline-none focus:border-[#706B65] text-sm"
                   />
 
@@ -236,10 +264,17 @@ export default function App() {
                     Save Item
                   </button>
                 </form>
+
+                {/* Inline Warning Message (No window focus loss) */}
+                {errorMessage && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mt-3 transition animate-fadeIn">
+                    {errorMessage}
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* Storage Compartments Grid with Drag & Drop Zones */}
+            {/* Storage Compartments Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               
               {/* Refrigerator Zone */}
@@ -400,7 +435,7 @@ export default function App() {
 
             </div>
 
-            {/* Seamless Action Flow */}
+            {/* Action Flow */}
             <div className="pt-2 text-center">
               <button
                 onClick={fetchMatchedRecipes}
