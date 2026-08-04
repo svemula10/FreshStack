@@ -41,3 +41,18 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     dietary_preferences = Column(String, default="None")
+
+class Inventory(Base):
+    __tablename__ = "inventory"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    ingredient_id = Column(Integer, ForeignKey("ingredients.id"))
+    quantity = Column(Float, default=1.0)
+    unit = Column(String, default="units")
+
+    user = relationship("User")
+    ingredient = relationship("Ingredient")
+
+# Provide the exact alias expected by main.py
+InventoryItem = Inventory
