@@ -65,3 +65,34 @@ def add_inventory(item: schemas.InventoryCreate, db: Session = Depends(get_db)):
         pass
     
     return item
+
+
+@app.get("/ingredients/", response_model=List[schemas.IngredientResponse])
+def get_all_ingredients(db: Session = Depends(get_db)):
+    return db.query(models.Ingredient).all()
+
+@app.get("/inventory/{user_id}", response_model=List[schemas.InventoryCreate])
+def get_user_inventory(user_id: int, db: Session = Depends(get_db)):
+    items = db.query(models.Inventory).filter(models.Inventory.user_id == user_id).all()
+    return items
+
+@app.post("/inventory/", response_model=schemas.InventoryCreate)
+def add_inventory(item: schemas.InventoryCreate, db: Session = Depends(get_db)):
+    db_item = models.Inventory(**item.model_dump())
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return item
+
+@app.get("/recipes/match/{user_id}", response_model=List[schemas.RecipeResponse])
+def get_matched_recipes(
+    user_id: int, 
+    max_time: Optional[int] = Query(None, description="Maximum total cooking time in minutes"),
+    db: Session = Depends(get_db)
+):
+    items = db.query(models.Inventory).filter(models.Inventory.user_id == user_id).all()
+    user_inventory_ids = {item.ingredient_id for item in items}
+    
+    recipes = db.query(models.Recipe).all()
+    matched = matching_engine.match_recipes(user_inventory_ids, recipes, max_time_minutes=max_time)
+    return matched

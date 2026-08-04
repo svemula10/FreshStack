@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 
-interface Ingredient {
+interface InventoryItem {
   id: number;
-  name: string;
-  quantity: number;
+  user_id: number;
+  ingredient_id: number;
 }
 
 interface Recipe {
@@ -17,168 +17,227 @@ interface Recipe {
   url?: string;
   match_score: number;
   missing_ingredient_count: number;
-  ingredients: Ingredient[];
+  ingredients: string[];
 }
 
 export default function App() {
-  const [inventory, setInventory] = useState<Ingredient[]>([]);
+  const [activeTab, setActiveTab] = useState<'storage' | 'recipes'>('storage');
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [newIngredientId, setNewIngredientId] = useState<string>('');
   const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [maxTime, setMaxTime] = useState<number>(60); // Default 60 minute limit
-  const [loading, setLoading] = useState(false);
-  const userId = 1; // Default MVP user
+  const [maxTime, setMaxTime] = useState<number>(60);
+  const [loading, setLoading] = useState<boolean>(false);
+  const userId = 1;
 
-  // Fetch matched recipes based on current time filter
-  const fetchRecipes = async () => {
+  // Fetch current user inventory
+  const fetchInventory = async () => {
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/inventory/${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setInventory(data);
+      }
+    } catch (err) {
+      console.error("Failed to load inventory", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchInventory();
+  }, []);
+
+  // Add ingredient to stock
+  const handleAddIngredient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newIngredientId) return;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/inventory/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, ingredient_id: parseInt(newIngredientId) })
+      });
+      if (res.ok) {
+        setNewIngredientId('');
+        fetchInventory();
+      }
+    } catch (err) {
+      console.error("Failed to add inventory item", err);
+    }
+  };
+
+  // Fetch matched recipes based on inventory and time limit
+  const fetchMatchedRecipes = async () => {
     setLoading(true);
+    setActiveTab('recipes');
     try {
       const res = await fetch(`http://127.0.0.1:8000/recipes/match/${userId}?max_time=${maxTime}`);
-      const data = await res.json();
-      setRecipes(data);
+      if (res.ok) {
+        const data = await res.json();
+        setRecipes(data);
+      }
     } catch (err) {
-      console.error("Failed to fetch matched recipes", err);
+      console.error("Failed to fetch recipes", err);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchRecipes();
-  }, [maxTime]);
-
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans p-6 md:p-12">
-      {/* Header */}
-      <header className="max-w-6xl mx-auto mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-zinc-800 pb-6">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-emerald-400">FreshStack</h1>
-          <p className="text-zinc-400 text-sm mt-1">Algorithmic Pantry & Deterministic Recipe Engine</p>
-        </div>
-        <div className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-xl">
-          <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Time Limit:</span>
-          <select 
-            value={maxTime} 
-            onChange={(e) => setMaxTime(Number(e.target.value))}
-            className="bg-zinc-800 text-emerald-400 font-medium px-2 py-1 rounded-lg focus:outline-none"
-          >
-            <option value={30}>Under 30 mins</option>
-            <option value={45}>Under 45 mins</option>
-            <option value={60}>Under 60 mins</option>
-            <option value={120}>Under 2 hours</option>
-            <option value={999}>Any Time</option>
-          </select>
-        </div>
-      </header>
-
-      {/* Main Grid Layout */}
-      <main className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Left Column: Pantry Inventory */}
-        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-6 h-fit backdrop-blur-sm">
-          <h2 className="text-lg font-bold text-zinc-200 mb-4 flex items-center justify-between">
-            <span>Home Inventory</span>
-            <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded-full border border-emerald-500/20">
-              Active Stock
-            </span>
-          </h2>
-          <p className="text-xs text-zinc-400 mb-4">
-            Ingredients currently logged in your pantry. Used by the deterministic matching engine.
-          </p>
-          
-          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-            {/* Sample hardcoded list for MVP visual state; can be tied to a GET /inventory endpoint */}
-            <div className="flex justify-between items-center p-3 bg-zinc-950/50 border border-zinc-800/50 rounded-xl">
-              <span className="text-sm font-medium text-zinc-300">Olive Oil</span>
-              <span className="text-xs text-zinc-500">1 bottle</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-zinc-950/50 border border-zinc-800/50 rounded-xl">
-              <span className="text-sm font-medium text-zinc-300">Garlic</span>
-              <span className="text-xs text-zinc-500">4 cloves</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-zinc-950/50 border border-zinc-800/50 rounded-xl">
-              <span className="text-sm font-medium text-zinc-300">White Rice</span>
-              <span className="text-xs text-zinc-500">500g</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-zinc-950/50 border border-zinc-800/50 rounded-xl">
-              <span className="text-sm font-medium text-zinc-300">Salt & Pepper</span>
-              <span className="text-xs text-zinc-500">Staples</span>
-            </div>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans p-6">
+      <div className="max-w-4xl mx-auto">
+        {/* Header & Navigation */}
+        <header className="flex justify-between items-center mb-8 border-b border-zinc-800 pb-4">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-emerald-400">FreshStack</h1>
+            <p className="text-zinc-400 text-sm">Algorithmic Pantry & Deterministic Recipe Matcher</p>
           </div>
-        </div>
-
-        {/* Right Columns: Recipe Recommendations */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xl font-bold text-zinc-100">Matched Recipes</h2>
-            <button 
-              onClick={fetchRecipes}
-              className="text-xs bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold px-4 py-2 rounded-xl transition shadow-lg shadow-emerald-500/10"
+          <div className="flex gap-2 bg-zinc-900 p-1 rounded-xl border border-zinc-800">
+            <button
+              onClick={() => setActiveTab('storage')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                activeTab === 'storage' ? 'bg-emerald-600 text-white' : 'text-zinc-400 hover:text-white'
+              }`}
             >
-              Refresh Matcher
+              🍳 Kitchen Storage
+            </button>
+            <button
+              onClick={fetchMatchedRecipes}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                activeTab === 'recipes' ? 'bg-emerald-600 text-white' : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              ✨ Find Recipes
             </button>
           </div>
+        </header>
 
-          {loading ? (
-            <div className="text-center py-20 text-zinc-500">Running deterministic set-matching engine...</div>
-          ) : recipes.length === 0 ? (
-            <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-10 text-center text-zinc-400">
-              No recipes found matching your inventory and time constraint. Try expanding your inventory or time threshold!
+        {/* Tab 1: Storage / Inventory Page */}
+        {activeTab === 'storage' && (
+          <div className="space-y-6">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
+              <h2 className="text-xl font-semibold mb-4 text-emerald-300">Add Items to Your Kitchen</h2>
+              <form onSubmit={handleAddIngredient} className="flex gap-3">
+                <input
+                  type="number"
+                  placeholder="Enter Ingredient ID (e.g., 1 for butter)"
+                  value={newIngredientId}
+                  onChange={(e) => setNewIngredientId(e.target.value)}
+                  className="flex-1 bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500"
+                />
+                <button
+                  type="submit"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-6 py-3 rounded-xl transition shadow-lg shadow-emerald-900/20"
+                >
+                  Store Item
+                </button>
+              </form>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-6">
-              {recipes.map((recipe) => (
-                <div key={recipe.id} className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-6 hover:border-zinc-700 transition">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3">
-                    <h3 className="text-lg font-bold text-zinc-100">{recipe.title}</h3>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs bg-zinc-800 text-zinc-300 px-2.5 py-1 rounded-lg">
-                        ⏱ {recipe.prep_time || "Prep N/A"} {recipe.cook_time ? `/ ${recipe.cook_time} cook` : ""}
-                      </span>
-                      {recipe.rating && (
-                        <span className="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-lg font-semibold">
-                          ★ {recipe.rating}
-                        </span>
-                      )}
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
+              <h2 className="text-xl font-semibold mb-4">Current Household Inventory</h2>
+              {inventory.length === 0 ? (
+                <p className="text-zinc-500 italic">Your kitchen storage is currently empty. Add some ingredients above!</p>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {inventory.map((item, idx) => (
+                    <div key={idx} className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl flex items-center justify-between">
+                      <span className="font-medium text-zinc-200">Ingredient ID: {item.ingredient_id}</span>
+                      <span className="text-xs bg-emerald-950 text-emerald-400 px-2 py-1 rounded-md border border-emerald-800">In Stock</span>
                     </div>
-                  </div>
+                  ))}
+                </div>
+              )}
 
-                  <div className="flex items-center gap-4 text-xs text-zinc-400 mb-4">
-                    <span className="text-emerald-400 font-medium">
-                      Match Score: {Math.round(recipe.match_score * 100)}%
-                    </span>
-                    <span>•</span>
-                    <span>Missing Items: {recipe.missing_ingredient_count}</span>
-                    {recipe.servings && <><span>•</span><span>Yields: {recipe.servings} servings</span></>}
-                  </div>
+              <div className="mt-8 text-center">
+                <button
+                  onClick={fetchMatchedRecipes}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-8 py-4 rounded-xl shadow-lg transition w-full sm:w-auto"
+                >
+                  Ready to Cook? Find Recipes Based On What I Have →
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
-                  <div className="bg-zinc-950/60 rounded-xl p-4 border border-zinc-900 mb-4">
-                    <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Instructions</h4>
-                    <p className="text-sm text-zinc-300 leading-relaxed line-clamp-3">
-                      {recipe.instructions}
-                    </p>
-                  </div>
+        {/* Tab 2: Recipe Matcher Results Page */}
+        {activeTab === 'recipes' && (
+          <div className="space-y-6">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-emerald-300">Recipe Matcher Engine</h2>
+                <p className="text-zinc-400 text-sm">Filtered by your active inventory and time limit constraints.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium text-zinc-300">Max Time (mins):</label>
+                <input
+                  type="number"
+                  value={maxTime}
+                  onChange={(e) => setMaxTime(Number(e.target.value))}
+                  className="w-24 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 text-center"
+                />
+                <button
+                  onClick={fetchMatchedRecipes}
+                  className="bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-lg text-sm font-medium transition border border-zinc-700"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
 
-                  <div className="flex justify-between items-center pt-2 border-t border-zinc-800/50">
-                    <span className="text-xs text-zinc-500">ID: #{recipe.id}</span>
-                    {recipe.url ? (
-                      <a 
-                        href={recipe.url} 
-                        target="_blank" 
-                        rel="noreferrer" 
-                        className="text-xs text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1 transition"
-                      >
-                        View Original Recipe ↗
-                      </a>
-                    ) : (
-                      <span className="text-xs text-zinc-600">Local Custom Recipe</span>
+            {loading ? (
+                <div className="text-center py-12 text-zinc-500">Computing deterministic recipe matches...</div>
+              ) : recipes.length === 0 ? (
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center text-zinc-400">
+                  <p className="text-lg font-medium mb-2">No matching recipes found.</p>
+                  <p className="text-sm text-zinc-500">Try adding more ingredients to your kitchen storage or increasing your time limit.</p>
+                </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-6">
+                {recipes.map((recipe) => (
+                  <div key={recipe.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-xl font-bold text-white">{recipe.title}</h3>
+                        <div className="flex gap-4 text-xs text-zinc-400 mt-1">
+                          {recipe.prep_time && <span>Prep: {recipe.prep_time}</span>}
+                          {recipe.cook_time && <span>Cook: {recipe.cook_time}</span>}
+                          {recipe.servings && <span>Servings: {recipe.servings}</span>}
+                          {recipe.rating && <span className="text-amber-400">★ {recipe.rating}</span>}
+                        </div>
+                      </div>
+                      <span className="bg-emerald-950 text-emerald-400 border border-emerald-800 px-3 py-1 rounded-full text-xs font-semibold">
+                        Missing: {recipe.missing_ingredient_count} items
+                      </span>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-semibold text-zinc-300 mb-1">Instructions:</h4>
+                      <p className="text-zinc-400 text-sm leading-relaxed bg-zinc-950 p-4 rounded-xl border border-zinc-800 max-h-40 overflow-y-auto">
+                        {recipe.instructions}
+                      </p>
+                    </div>
+
+                    {recipe.url && (
+                      <div className="pt-2">
+                        <a
+                          href={recipe.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-emerald-400 hover:text-emerald-300 text-sm font-medium inline-flex items-center gap-1 underline"
+                        >
+                          View Original Recipe Source ↗
+                        </a>
+                      </div>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-      </main>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
