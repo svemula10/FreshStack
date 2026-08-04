@@ -24,18 +24,33 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'storage' | 'recipes'>('storage');
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [ingredientInput, setIngredientInput] = useState<string>('');
-  const [selectedZone, setSelectedZone] = useState<'fridge' | 'cabinet' | 'spices'>('fridge');
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [maxTime, setMaxTime] = useState<number>(45);
   const [loading, setLoading] = useState<boolean>(false);
   const userId = 1;
+
+  // Smart helper to automatically determine zone based on ingredient name
+  const getDefaultZone = (name: string): 'fridge' | 'cabinet' | 'spices' => {
+    const lower = name.toLowerCase();
+    const spices = ['salt', 'pepper', 'cinnamon', 'oregano', 'basil', 'cumin', 'paprika', 'thyme', 'rosemary', 'nutmeg', 'chili powder', 'garlic powder', 'onion powder'];
+    const fridge = ['butter', 'milk', 'cheese', 'egg', 'yogurt', 'cream', 'chicken', 'beef', 'pork', 'fish', 'lettuce', 'spinach', 'carrot', 'celery', 'apple', 'tofu', 'mayo'];
+    
+    if (spices.some(s => lower.includes(s))) return 'spices';
+    if (fridge.some(f => lower.includes(f))) return 'fridge';
+    return 'cabinet';
+  };
 
   const fetchInventory = async () => {
     try {
       const res = await fetch(`http://127.0.0.1:8000/inventory/${userId}`);
       if (res.ok) {
         const data = await res.json();
-        setInventory(data);
+        // Attach smart zones if missing from backend record
+        const enriched = data.map((item: any) => ({
+          ...item,
+          zone: item.zone || getDefaultZone(item.ingredient_name || `item-${item.ingredient_id}`)
+        }));
+        setInventory(enriched);
       }
     } catch (err) {
       console.error("Failed to load inventory", err);
@@ -50,20 +65,40 @@ export default function App() {
     e.preventDefault();
     if (!ingredientInput.trim()) return;
 
+    const trimmedName = ingredientInput.trim().toLowerCase();
+    const assignedZone = getDefaultZone(trimmedName);
+
     try {
       const ingRes = await fetch(`http://127.0.0.1:8000/ingredients/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: ingredientInput.trim().toLowerCase(), category: selectedZone })
+        body: JSON.stringify({ name: trimmedName, category: assignedZone })
       });
       
       if (ingRes.ok) {
         const ingredientData = await ingRes.json();
-        await fetch(`http://127.0.0.1:8000/inventory/`, {
+        
+        const invRes = await fetch(`http://127.0.0.1:8000/inventory/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ user_id: userId, ingredient_id: ingredientData.id })
         });
+
+        if (invRes.ok) {
+          const newInvItem = await invRes.json();
+          
+          // Optimistically append the item with its name so it shows up instantly without waiting for a re-fetch
+          setInventory(prev => [
+            ...prev,
+            {
+              id: newInvItem.id || Date.now(),
+              user_id: userId,
+              ingredient_id: ingredientData.id,
+              ingredient_name: trimmedName,
+              zone: assignedZone
+            }
+          ]);
+        }
 
         setIngredientInput('');
         fetchInventory();
@@ -71,6 +106,25 @@ export default function App() {
     } catch (err) {
       console.error("Failed to add ingredient", err);
     }
+  };
+
+  // Drag and Drop handlers to move items between zones
+  const handleDragStart = (e: React.DragEvent, itemId: number) => {
+    e.dataTransfer.setData('text/plain', itemId.toString());
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent, targetZone: 'fridge' | 'cabinet' | 'spices') => {
+    e.preventDefault();
+    const itemIdStr = e.dataTransfer.getData('text/plain');
+    const itemId = parseInt(itemIdStr, 10);
+
+    setInventory(prev =>
+      prev.map(item => (item.id === itemId ? { ...item, zone: targetZone } : item))
+    );
   };
 
   const fetchMatchedRecipes = async () => {
@@ -149,7 +203,7 @@ export default function App() {
 
               <div className="relative z-10 max-w-lg">
                 <h2 className="text-lg font-serif text-[#1A1817] mb-2">Add to Pantry</h2>
-                <p className="text-xs text-[#706B65] mb-6">Type what you brought home to keep your virtual kitchen updated.</p>
+                <p className="text-xs text-[#706B65] mb-6">Type what you bought home. FreshStack will automatically place it in the correct zone!</p>
                 
                 <form onSubmit={handleAddIngredient} className="flex flex-col sm:flex-row gap-3">
                   <input
@@ -159,16 +213,6 @@ export default function App() {
                     onChange={(e) => setIngredientInput(e.target.value)}
                     className="flex-1 bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#1A1817] placeholder-[#A39D94] focus:outline-none focus:border-[#706B65] text-sm"
                   />
-                  
-                  <select
-                    value={selectedZone}
-                    onChange={(e) => setSelectedZone(e.target.value as any)}
-                    className="bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#706B65] focus:outline-none focus:border-[#706B65] text-xs font-medium"
-                  >
-                    <option value="fridge">Refrigerator</option>
-                    <option value="cabinet">Cabinets</option>
-                    <option value="spices">Spice Drawer</option>
-                  </select>
 
                   <button
                     type="submit"
@@ -180,30 +224,41 @@ export default function App() {
               </div>
             </div>
 
-            {/* Storage Compartments Grid with Working Images */}
+            {/* Storage Compartments Grid with Drag & Drop Zones */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               
-              {/* Refrigerator */}
-              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+              {/* Refrigerator Zone */}
+              <div 
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, 'fridge')}
+                className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm flex flex-col justify-between min-h-[280px]"
+              >
                 <div>
-                  <div className="h-28 rounded-xl overflow-hidden mb-4 border border-[#EFECE6]">
+                  <div className="h-28 rounded-xl overflow-hidden mb-4 border border-[#EFECE6] group">
                     <img 
                       src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT5XLsvxTXh4d0ajeF5JvwNGGKEJZBXOZDjf9nUTuE-TQ&s=10" 
                       alt="Refrigerator items" 
-                      className="w-full h-full object-cover hover:scale-105 transition duration-500"
+                      className="w-full h-full object-cover transition duration-500 group-hover:scale-105"
                     />
                   </div>
                   <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Refrigerator</h3>
                   <p className="text-[11px] text-[#8C867E] mb-4">Perishables & fresh produce</p>
                   
                   <div className="space-y-2">
-                    {inventory.length === 0 ? (
-                      <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
+                    {inventory.filter(i => i.zone === 'fridge').length === 0 ? (
+                      <p className="text-xs text-[#A39D94] italic py-3 text-center">Drag items here or add items</p>
                     ) : (
-                      inventory.map((item, idx) => (
-                        <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
-                          <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
-                          <span className="text-[10px] text-[#706B65]">Stored</span>
+                      inventory.filter(i => i.zone === 'fridge').map((item) => (
+                        <div 
+                          key={item.id} 
+                          draggable={true}
+                          onDragStart={(e) => handleDragStart(e, item.id)}
+                          className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs cursor-grab active:cursor-grabbing hover:border-[#706B65] transition"
+                        >
+                          <span className="text-[#2C2A29] font-medium capitalize">
+                            {item.ingredient_name || `Item #${item.ingredient_id}`}
+                          </span>
+                          <span className="text-[10px] text-[#706B65]">Drag to move</span>
                         </div>
                       ))
                     )}
@@ -211,27 +266,38 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Cabinets */}
-              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+              {/* Cabinets Zone */}
+              <div 
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, 'cabinet')}
+                className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm flex flex-col justify-between min-h-[280px]"
+              >
                 <div>
-                  <div className="h-28 rounded-xl overflow-hidden mb-4 border border-[#EFECE6]">
+                  <div className="h-28 rounded-xl overflow-hidden mb-4 border border-[#EFECE6] group">
                     <img 
                       src="https://images.unsplash.com/photo-1588854337236-6889d631faa8?auto=format&fit=crop&q=80&w=400" 
                       alt="Cabinet items" 
-                      className="w-full h-full object-cover hover:scale-105 transition duration-500"
+                      className="w-full h-full object-cover transition duration-500 group-hover:scale-105"
                     />
                   </div>
                   <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Cabinets</h3>
                   <p className="text-[11px] text-[#8C867E] mb-4">Grains & dry staples</p>
                   
                   <div className="space-y-2">
-                    {inventory.length === 0 ? (
-                      <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
+                    {inventory.filter(i => i.zone === 'cabinet').length === 0 ? (
+                      <p className="text-xs text-[#A39D94] italic py-3 text-center">Drag items here or add items</p>
                     ) : (
-                      inventory.map((item, idx) => (
-                        <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
-                          <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
-                          <span className="text-[10px] text-[#706B65]">Stored</span>
+                      inventory.filter(i => i.zone === 'cabinet').map((item) => (
+                        <div 
+                          key={item.id} 
+                          draggable={true}
+                          onDragStart={(e) => handleDragStart(e, item.id)}
+                          className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs cursor-grab active:cursor-grabbing hover:border-[#706B65] transition"
+                        >
+                          <span className="text-[#2C2A29] font-medium capitalize">
+                            {item.ingredient_name || `Item #${item.ingredient_id}`}
+                          </span>
+                          <span className="text-[10px] text-[#706B65]">Drag to move</span>
                         </div>
                       ))
                     )}
@@ -239,27 +305,38 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Spice Drawer */}
-              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+              {/* Spice Drawer Zone */}
+              <div 
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, 'spices')}
+                className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm flex flex-col justify-between min-h-[280px]"
+              >
                 <div>
-                  <div className="h-28 rounded-xl overflow-hidden mb-4 border border-[#EFECE6]">
+                  <div className="h-28 rounded-xl overflow-hidden mb-4 border border-[#EFECE6] group">
                     <img 
                       src="https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&q=80&w=400" 
                       alt="Spice drawer" 
-                      className="w-full h-full object-cover hover:scale-105 transition duration-500"
+                      className="w-full h-full object-cover transition duration-500 group-hover:scale-105"
                     />
                   </div>
                   <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Spice Drawer</h3>
                   <p className="text-[11px] text-[#8C867E] mb-4">Herbs & seasonings</p>
                   
                   <div className="space-y-2">
-                    {inventory.length === 0 ? (
-                      <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
+                    {inventory.filter(i => i.zone === 'spices').length === 0 ? (
+                      <p className="text-xs text-[#A39D94] italic py-3 text-center">Drag items here or add items</p>
                     ) : (
-                      inventory.map((item, idx) => (
-                        <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
-                          <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
-                          <span className="text-[10px] text-[#706B65]">Stored</span>
+                      inventory.filter(i => i.zone === 'spices').map((item) => (
+                        <div 
+                          key={item.id} 
+                          draggable={true}
+                          onDragStart={(e) => handleDragStart(e, item.id)}
+                          className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs cursor-grab active:cursor-grabbing hover:border-[#706B65] transition"
+                        >
+                          <span className="text-[#2C2A29] font-medium capitalize">
+                            {item.ingredient_name || `Item #${item.ingredient_id}`}
+                          </span>
+                          <span className="text-[10px] text-[#706B65]">Drag to move</span>
                         </div>
                       ))
                     )}

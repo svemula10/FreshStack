@@ -1,10 +1,11 @@
 # backend/app/main.py
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from .database import get_db, redis_client, engine, Base
 from . import models, schemas, engine as matching_engine
+from app import database, models, schemas
 
 Base.metadata.create_all(bind=engine)
 
@@ -67,14 +68,38 @@ def add_inventory(item: schemas.InventoryCreate, db: Session = Depends(get_db)):
     return item
 
 
-@app.get("/ingredients/", response_model=List[schemas.IngredientResponse])
-def get_all_ingredients(db: Session = Depends(get_db)):
-    return db.query(models.Ingredient).all()
+@app.post("/ingredients/", response_model=schemas.IngredientResponse)
+def create_ingredient(ingredient: schemas.IngredientCreate, db: Session = Depends(database.get_db)):
+    # Check if ingredient already exists
+    existing = db.query(models.Ingredient).filter(models.Ingredient.name == ingredient.name).first()
+    if existing:
+        return existing
+        
+    db_ingredient = models.Ingredient(name=ingredient.name, category=ingredient.category)
+    db.add(db_ingredient)
+    db.commit()
+    db.refresh(db_ingredient)
+    return db_ingredient
 
-@app.get("/inventory/{user_id}", response_model=List[schemas.InventoryCreate])
-def get_user_inventory(user_id: int, db: Session = Depends(get_db)):
-    items = db.query(models.Inventory).filter(models.Inventory.user_id == user_id).all()
-    return items
+
+@app.get("/inventory/{user_id}")
+def get_user_inventory(user_id: int, db: Session = Depends(database.get_db)):
+    # Query inventory and eagerly load the associated ingredient relationship
+    items = db.query(models.Inventory).options(
+        joinedload(models.Inventory.ingredient)
+    ).filter(models.Inventory.user_id == user_id).all()
+    
+    # Map the response to include the name string explicitly
+    result = []
+    for item in items:
+        result.append({
+            "id": item.id,
+            "user_id": item.user_id,
+            "ingredient_id": item.ingredient_id,
+            "ingredient_name": item.ingredient.name if item.ingredient else "unknown"
+        })
+    return result
+
 
 @app.post("/inventory/", response_model=schemas.InventoryCreate)
 def add_inventory(item: schemas.InventoryCreate, db: Session = Depends(get_db)):

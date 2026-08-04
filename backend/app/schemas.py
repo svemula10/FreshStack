@@ -4,8 +4,7 @@ from typing import List, Optional
 class IngredientResponse(BaseModel):
     id: int
     name: str
-    category: Optional[str] = "Pantry"
-    shelf_life_days: Optional[int] = 30
+    category: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -21,11 +20,13 @@ class InventoryItemResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class IngredientCreate(BaseModel):
+    name: str
+    category: Optional[str] = "cabinet"
+
 class InventoryCreate(BaseModel):
     user_id: int
     ingredient_id: int
-    quantity: float = 1.0
-    unit: str = "units"
 
     class Config:
         from_attributes = True
