@@ -19,39 +19,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/recipes/match/{user_id}", response_model=List[schemas.RecipeResponse])
-def get_matched_recipes(
-    user_id: int, 
-    max_time: Optional[int] = Query(None, description="Maximum total cooking time in minutes"),
-    db: Session = Depends(get_db)
-):
-    user_inventory_ids = set()
-    cache_key = f"user_inventory:{user_id}"
-    
-    # Try fetching from Redis cache with graceful fallback
-    try:
-        cached_inventory = redis_client.smembers(cache_key)
-        if cached_inventory:
-            user_inventory_ids = {int(i) for i in cached_inventory}
-    except Exception:
-        pass
+@app.get("/recipes/match/{user_id}")
+def get_matched_recipes(user_id: int, max_time: int = 45, db: Session = Depends(database.get_db)):
+    # 1. Fetch user's inventory item names
+    user_inventory = db.query(models.Inventory).filter(models.Inventory.user_id == user_id).all()
+    user_pantry_tokens = set()
+    for item in user_inventory:
+        name = item.ingredient.name if hasattr(item, 'ingredient') and item.ingredient else f"item-{item.ingredient_id}"
+        for word in name.lower().split():
+            user_pantry_tokens.add(word)
+            if word.endswith('s') and len(word) > 3:
+                user_pantry_tokens.add(word[:-1])
 
-    # Fallback to SQLite if cache is empty
-    if not user_inventory_ids:
-        items = db.query(models.InventoryItem).filter(models.InventoryItem.user_id == user_id).all()
-        user_inventory_ids = {item.ingredient_id for item in items}
+    # 2. Fetch all recipes from database
+    all_recipes = db.query(models.Recipe).all()
+    matched_recipes = []
+
+    for recipe in all_recipes:
+        recipe_ingredients = recipe.ingredients if hasattr(recipe, 'ingredients') else []
         
-        if user_inventory_ids:
-            try:
-                redis_client.sadd(cache_key, *user_inventory_ids)
-            except Exception:
-                pass
+        if not recipe_ingredients:
+            continue
+
+        missing_count = 0
+        for ing in recipe_ingredients:
+            ing_text = ing.name.lower() if hasattr(ing, 'name') else str(ing).lower()
             
-    recipes = db.query(models.Recipe).all()
-    
-    # Run deterministic matching with time constraints
-    matched = matching_engine.match_recipes(user_inventory_ids, recipes, max_time_minutes=max_time)
-    return matched
+            # Check if user has pantry match for this line
+            has_match = any(token in ing_text for token in user_pantry_tokens if len(token) > 2)
+            
+            # Treat optional items, basic baking staples (sugar, salt, water, pastry, ice cream, etc.) as non-blocking or lenient
+            is_pantry_staple = any(staple in ing_text for staple in ['sugar', 'salt', 'water', 'puff pastry', 'ice cream', 'whipped cream'])
+            is_optional = 'optional' in ing_text
+
+            if not has_match and not is_optional and not is_pantry_staple:
+                missing_count += 1
+
+        # LENIENT THRESHOLD: Allow recipes if the user is missing 2 or fewer non-staple ingredients!
+        MAX_MISSING_ALLOWED = 2
+        
+        if missing_count <= MAX_MISSING_ALLOWED:
+            matched_recipes.append({
+                "id": recipe.id,
+                "title": recipe.title,
+                "instructions": recipe.instructions,
+                "prep_time": recipe.prep_time,
+                "cook_time": recipe.cook_time,
+                "servings": recipe.servings,
+                "rating": recipe.rating,
+                "url": recipe.url,
+                "missing_ingredient_count": missing_count
+            })
+
+    return matched_recipes
 
 @app.post("/inventory/", response_model=schemas.InventoryCreate)
 def add_inventory(item: schemas.InventoryCreate, db: Session = Depends(get_db)):
