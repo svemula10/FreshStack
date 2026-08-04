@@ -18,6 +18,7 @@ interface Recipe {
   rating?: string;
   url?: string;
   missing_ingredient_count: number;
+  ingredients?: string[]; // Full list of ingredients for dropdown view
 }
 
 export default function App() {
@@ -28,9 +29,9 @@ export default function App() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [maxTime, setMaxTime] = useState<number>(45);
   const [loading, setLoading] = useState<boolean>(false);
+  const [expandedRecipeId, setExpandedRecipeId] = useState<number | null>(null); // Track open accordion
   const userId = 1;
 
-  // Helper to get base stem for singular/plural comparison (e.g. apples -> apple)
   const getSingularStem = (name: string): string => {
     let lower = name.trim().toLowerCase();
     if (lower.endsWith('s') && !lower.endsWith('ss') && lower.length > 3) {
@@ -39,7 +40,6 @@ export default function App() {
     return lower;
   };
 
-  // Smart helper to automatically determine zone based on ingredient name
   const getDefaultZone = (name: string): 'fridge' | 'cabinet' | 'spices' => {
     const lower = name.toLowerCase();
     const spices = ['salt', 'pepper', 'cinnamon', 'oregano', 'basil', 'cumin', 'paprika', 'thyme', 'rosemary', 'nutmeg', 'chili powder', 'garlic powder', 'onion powder'];
@@ -75,7 +75,7 @@ export default function App() {
     const rawInput = ingredientInput.trim();
     if (!rawInput) return;
 
-    setErrorMessage(null); // Clear previous error
+    setErrorMessage(null);
     const inputStem = getSingularStem(rawInput);
 
     const existingItem = inventory.find(item => {
@@ -183,6 +183,10 @@ export default function App() {
     }
   };
 
+  const toggleRecipeDropdown = (id: number) => {
+    setExpandedRecipeId(prev => (prev === id ? null : id));
+  };
+
   return (
     <div className="min-h-screen bg-[#FBF9F5] text-[#2C2A29] font-sans antialiased px-6 py-10 selection:bg-[#E3DCD2]">
       <div className="max-w-4xl mx-auto">
@@ -231,7 +235,7 @@ export default function App() {
         {activeTab === 'storage' && (
           <div className="space-y-10">
             
-            {/* Input Card with Pantry Background */}
+            {/* Input Card */}
             <div className="bg-white border border-[#E8E2D5] rounded-2xl p-8 shadow-sm relative overflow-hidden">
               <div className="absolute right-0 top-0 bottom-0 w-1/3 pointer-events-none hidden sm:block">
                 <img 
@@ -252,7 +256,7 @@ export default function App() {
                     value={ingredientInput}
                     onChange={(e) => {
                       setIngredientInput(e.target.value);
-                      if (errorMessage) setErrorMessage(null); // Clear warning as soon as typing resumes
+                      if (errorMessage) setErrorMessage(null);
                     }}
                     className="flex-1 bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#1A1817] placeholder-[#A39D94] focus:outline-none focus:border-[#706B65] text-sm"
                   />
@@ -265,9 +269,8 @@ export default function App() {
                   </button>
                 </form>
 
-                {/* Inline Warning Message (No window focus loss) */}
                 {errorMessage && (
-                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mt-3 transition animate-fadeIn">
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mt-3 transition">
                     {errorMessage}
                   </p>
                 )}
@@ -448,14 +451,14 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 2: Recipe Matcher Page */}
+        {/* Tab 2: Recipe Matcher Page with Accordion Dropdown */}
         {activeTab === 'recipes' && (
           <div className="space-y-8">
             
             <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-sm">
               <div>
                 <h2 className="text-lg font-serif text-[#1A1817]">Matched Recipes</h2>
-                <p className="text-xs text-[#706B65]">Filtered precisely by your available pantry and time constraints.</p>
+                <p className="text-xs text-[#706B65]">Click any recipe card below to expand ingredients and instructions.</p>
               </div>
               <div className="flex items-center gap-2 bg-[#FBF9F5] p-1.5 rounded-xl border border-[#E5DFD4]">
                 <label className="text-[11px] font-medium text-[#706B65] px-2">Max Time:</label>
@@ -486,41 +489,76 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-4">
-                {recipes.map((recipe) => (
-                  <div key={recipe.id} className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm space-y-3">
-                    <div className="flex justify-between items-start gap-4">
-                      <div>
-                        <h3 className="text-lg font-serif text-[#1A1817] mb-1">{recipe.title}</h3>
-                        <div className="flex gap-4 text-xs text-[#8C867E]">
-                          {recipe.prep_time && <span>Prep: {recipe.prep_time}</span>}
-                          {recipe.cook_time && <span>Cook: {recipe.cook_time}</span>}
-                          {recipe.servings && <span>Servings: {recipe.servings}</span>}
-                          {recipe.rating && <span className="text-[#B38B2D]">★ {recipe.rating}</span>}
+                {recipes.map((recipe) => {
+                  const isExpanded = expandedRecipeId === recipe.id;
+                  return (
+                    <div 
+                      key={recipe.id} 
+                      className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm transition hover:border-[#B38B2D] cursor-pointer"
+                      onClick={() => toggleRecipeDropdown(recipe.id)}
+                    >
+                      {/* Recipe Card Header Summary */}
+                      <div className="flex justify-between items-start gap-4">
+                        <div>
+                          <h3 className="text-lg font-serif text-[#1A1817] mb-1 flex items-center gap-2">
+                            <span>{recipe.title}</span>
+                            <span className="text-xs text-[#A39D94] font-normal">
+                              {isExpanded ? '▲ Hide Details' : '▼ View Details'}
+                            </span>
+                          </h3>
+                          <div className="flex gap-4 text-xs text-[#8C867E]">
+                            {recipe.prep_time && <span>Prep: {recipe.prep_time}</span>}
+                            {recipe.cook_time && <span>Cook: {recipe.cook_time}</span>}
+                            {recipe.servings && <span>Servings: {recipe.servings}</span>}
+                            {recipe.rating && <span className="text-[#B38B2D]">★ {recipe.rating}</span>}
+                          </div>
                         </div>
+                        <span className="bg-[#F2EDE4] text-[#4A453F] border border-[#E5DFD4] px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap">
+                          Missing: {recipe.missing_ingredient_count}
+                        </span>
                       </div>
-                      <span className="bg-[#F2EDE4] text-[#4A453F] border border-[#E5DFD4] px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap">
-                        Missing: {recipe.missing_ingredient_count}
-                      </span>
-                    </div>
 
-                    <p className="text-[#4A453F] text-xs leading-relaxed bg-[#FBF9F5] p-4 rounded-xl border border-[#EFECE6] max-h-32 overflow-y-auto">
-                      {recipe.instructions}
-                    </p>
-
-                    {recipe.url && (
-                      <div>
-                        <a
-                          href={recipe.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[#59524A] hover:text-[#1A1817] text-xs font-medium underline inline-flex items-center gap-1"
+                      {/* Expandable Dropdown Content */}
+                      {isExpanded && (
+                        <div 
+                          className="mt-5 pt-5 border-t border-[#EFECE6] space-y-4 animate-fadeIn cursor-default"
+                          onClick={(e) => e.stopPropagation()} // Prevent collapse when interacting inside details
                         >
-                          Original Recipe ↗
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                          {recipe.ingredients && recipe.ingredients.length > 0 && (
+                            <div>
+                              <h4 className="text-xs font-bold uppercase tracking-wider text-[#706B65] mb-2">Ingredients:</h4>
+                              <ul className="list-disc list-inside text-xs text-[#4A453F] space-y-1 bg-[#FBF9F5] p-4 rounded-xl border border-[#EFECE6]">
+                                {recipe.ingredients.map((ing, idx) => (
+                                  <li key={idx}>{ing}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          <div>
+                            <h4 className="text-xs font-bold uppercase tracking-wider text-[#706B65] mb-2">Instructions:</h4>
+                            <div className="text-[#4A453F] text-xs leading-relaxed bg-[#FBF9F5] p-4 rounded-xl border border-[#EFECE6] max-h-48 overflow-y-auto whitespace-pre-line">
+                              {recipe.instructions}
+                            </div>
+                          </div>
+
+                          {recipe.url && (
+                            <div>
+                              <a
+                                href={recipe.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[#59524A] hover:text-[#1A1817] text-xs font-medium underline inline-flex items-center gap-1"
+                              >
+                                Original Recipe Source ↗
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 

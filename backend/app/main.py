@@ -56,7 +56,7 @@ def get_matched_recipes(user_id: int, max_time: int = 45, db: Session = Depends(
                 missing_count += 1
 
         # LENIENT THRESHOLD: Allow recipes if the user is missing 2 or fewer non-staple ingredients!
-        MAX_MISSING_ALLOWED = 2
+        MAX_MISSING_ALLOWED = 3
         
         if missing_count <= MAX_MISSING_ALLOWED:
             matched_recipes.append({
