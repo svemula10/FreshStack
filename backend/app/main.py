@@ -39,17 +39,20 @@ def get_matched_recipes(
     # 2. Fetch all recipes from database
     all_recipes = db.query(models.Recipe).all()
     matched_recipes = []
+    seen_recipe_ids = set()
 
     for recipe in all_recipes:
-        recipe_ingredients = recipe.ingredients if hasattr(recipe, 'ingredients') else []
-        if not recipe_ingredients:
+        if recipe.id in seen_recipe_ids:
             continue
 
-        missing_count = 0
+        raw_ingredients = recipe.ingredients if hasattr(recipe, 'ingredients') else []
+        if not raw_ingredients:
+            continue
+
         ingredient_list = []
 
-        for ing in recipe_ingredients:
-            # Safely extract text from the SQLAlchemy relationship
+        # --- SMART INGREDIENT CLEANING ---
+        for ing in raw_ingredients:
             ing_text = ""
             if hasattr(ing, 'name') and ing.name:
                 ing_text = ing.name.strip()
@@ -57,32 +60,66 @@ def get_matched_recipes(
                 ing_text = ing.ingredient.name.strip()
             else:
                 ing_text = str(ing).strip()
-            
-            # Programmatically filter out layout artifacts, blank spaces, or pure symbols
-            if not ing_text or ing_text in ["•", "-", "*"] or not re.search(r'[a-zA-Z0-9]', ing_text):
-                continue
-            
-            # Clean leading/trailing stray bullet characters
-            cleaned_text = re.sub(r'^[•\-\*\s]+|[•\-\*\s]+$', '', ing_text).strip()
-            if cleaned_text and cleaned_text not in ingredient_list:
-                ingredient_list.append(cleaned_text)
 
-            # Match checking logic
-            ing_lower = cleaned_text.lower()
-            has_match = any(token in ing_lower for token in user_pantry_tokens if len(token) > 2)
-            is_pantry_staple = any(staple in ing_lower for staple in ['sugar', 'salt', 'water', 'puff pastry', 'ice cream', 'whipped cream', 'flour'])
-            is_optional = 'optional' in ing_lower
+            # Handle multi-line database blobs or relational lines
+            lines = re.split(r'\n+|•', ing_text)
+            for line in lines:
+                cleaned_line = line.strip()
+                cleaned_lower = cleaned_line.lower()
+
+                # Filter out useless database fragments, dangling modifiers, or standalone noise words
+                if (not cleaned_line or 
+                    cleaned_line in ["•", "-", "*"] or 
+                    len(cleaned_line) <= 1 or
+                    cleaned_lower in ["thawed", "or as needed", "to taste", "optional", "ingredients", "filling:", "sauce:", "garnish:"] or
+                    cleaned_lower.endswith("x") or 
+                    cleaned_lower.endswith(":")):
+                    continue
+
+                # Strip leading/trailing bullet marks
+                final_ing = re.sub(r'^[•\-\*\s]+|[•\-\*\s]+$', '', cleaned_line).strip()
+                if final_ing and final_ing not in ingredient_list:
+                    ingredient_list.append(final_ing)
+
+        # Calculate missing ingredients against pantry tokens
+        missing_count = 0
+        for ing_str in ingredient_list:
+            lower_str = ing_str.lower()
+            has_match = any(token in lower_str for token in user_pantry_tokens if len(token) > 2)
+            is_pantry_staple = any(staple in lower_str for staple in ['sugar', 'salt', 'water', 'puff pastry', 'ice cream', 'whipped cream', 'flour', 'milk', 'pepper', 'oil', 'butter', 'cinnamon'])
+            is_optional = 'optional' in lower_str
 
             if not has_match and not is_optional and not is_pantry_staple:
                 missing_count += 1
 
-        # Lenient threshold: allow recipes missing up to 3 non-staple ingredients
+        # --- SMART INSTRUCTION CLEANING ---
+        raw_instructions = recipe.instructions or ""
+        # Remove photo credits, contributor signatures, or photo by lines dynamically
+        cleaned_instructions = re.sub(r'(?:Photo by|Recipe courtesy of|Submitted by|Copyright).*', '', raw_instructions, flags=re.IGNORECASE)
+        
+        # Also split and filter out any stray single-line names or photo noise fragments
+        instruction_lines = cleaned_instructions.split('\n')
+        filtered_instructions = []
+        for line in instruction_lines:
+            line_str = line.strip()
+            line_lower = line_str.lower()
+            # Skip lines that look like photo credits, usernames, or bare attribution names
+            if (not line_str or 
+                "photo by" in line_lower or 
+                line_lower.startswith("photo") or 
+                len(line_str) < 3):
+                continue
+            filtered_instructions.append(line_str)
+
+        final_instructions_block = "\n".join(filtered_instructions)
+
         MAX_MISSING_ALLOWED = 3
-        if missing_count <= MAX_MISSING_ALLOWED:
+        if missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
+            seen_recipe_ids.add(recipe.id)
             matched_recipes.append({
                 "id": recipe.id,
                 "title": recipe.title,
-                "instructions": recipe.instructions,
+                "instructions": final_instructions_block,
                 "prep_time": recipe.prep_time,
                 "cook_time": recipe.cook_time,
                 "servings": recipe.servings,
@@ -116,12 +153,18 @@ def get_user_inventory(user_id: int, db: Session = Depends(get_db)):
     
     result = []
     for item in items:
+        assigned_zone = getattr(item, "zone", None)
+        if not assigned_zone and item.ingredient and hasattr(item.ingredient, "category") and item.ingredient.category:
+            assigned_zone = item.ingredient.category
+        if not assigned_zone:
+            assigned_zone = "cabinet"
+
         result.append({
             "id": item.id,
             "user_id": item.user_id,
             "ingredient_id": item.ingredient_id,
             "ingredient_name": item.ingredient.name if item.ingredient else "unknown",
-            "zone": getattr(item, "zone", "cabinet")
+            "zone": assigned_zone
         })
     return result
 
@@ -132,12 +175,6 @@ def add_inventory(item: schemas.InventoryCreate, db: Session = Depends(get_db)):
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
-    
-    try:
-        redis_client.sadd(f"user_inventory:{item.user_id}", item.ingredient_id)
-    except Exception:
-        pass
-    
     return db_item
 
 
