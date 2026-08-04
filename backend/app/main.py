@@ -113,7 +113,7 @@ def get_matched_recipes(
 
         final_instructions_block = "\n".join(filtered_instructions)
 
-        MAX_MISSING_ALLOWED = 3
+        MAX_MISSING_ALLOWED = 2
         if missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
             seen_recipe_ids.add(recipe.id)
             matched_recipes.append({
