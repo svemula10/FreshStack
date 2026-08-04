@@ -1,3 +1,4 @@
+# backend/app/models.py
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -54,5 +55,5 @@ class Inventory(Base):
     user = relationship("User")
     ingredient = relationship("Ingredient")
 
-# Provide the exact alias expected by main.py
+# Provide alias required by main.py
 InventoryItem = Inventory
