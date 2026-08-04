@@ -121,3 +121,12 @@ def get_matched_recipes(
     recipes = db.query(models.Recipe).all()
     matched = matching_engine.match_recipes(user_inventory_ids, recipes, max_time_minutes=max_time)
     return matched
+
+
+@app.delete("/inventory/{inventory_id}")
+def delete_inventory_item(inventory_id: int, db: Session = Depends(database.get_db)):
+    item = db.query(models.Inventory).filter(models.Inventory.id == inventory_id).first()
+    if item:
+        db.delete(item)
+        db.commit()
+    return {"message": "Item deleted"}

@@ -108,6 +108,21 @@ export default function App() {
     }
   };
 
+  // Delete inventory item handler
+  const handleDeleteIngredient = async (inventoryId: number) => {
+    // Optimistically update UI immediately
+    setInventory(prev => prev.filter(item => item.id !== inventoryId));
+
+    try {
+      await fetch(`http://127.0.0.1:8000/inventory/${inventoryId}`, {
+        method: 'DELETE',
+      });
+    } catch (err) {
+      console.error("Failed to delete inventory item from backend", err);
+      fetchInventory(); // Revert on failure
+    }
+  };
+
   // Drag and Drop handlers to move items between zones
   const handleDragStart = (e: React.DragEvent, itemId: number) => {
     e.dataTransfer.setData('text/plain', itemId.toString());
@@ -253,12 +268,25 @@ export default function App() {
                           key={item.id} 
                           draggable={true}
                           onDragStart={(e) => handleDragStart(e, item.id)}
-                          className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs cursor-grab active:cursor-grabbing hover:border-[#706B65] transition"
+                          className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs cursor-grab active:cursor-grabbing hover:border-[#706B65] transition group"
                         >
                           <span className="text-[#2C2A29] font-medium capitalize">
                             {item.ingredient_name || `Item #${item.ingredient_id}`}
                           </span>
-                          <span className="text-[10px] text-[#706B65]">Drag to move</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-[#706B65]">Drag</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteIngredient(item.id);
+                              }}
+                              className="text-[#A39D94] hover:text-red-600 font-bold px-1 transition text-sm"
+                              title="Delete ingredient"
+                            >
+                              ×
+                            </button>
+                          </div>
                         </div>
                       ))
                     )}
@@ -292,12 +320,25 @@ export default function App() {
                           key={item.id} 
                           draggable={true}
                           onDragStart={(e) => handleDragStart(e, item.id)}
-                          className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs cursor-grab active:cursor-grabbing hover:border-[#706B65] transition"
+                          className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs cursor-grab active:cursor-grabbing hover:border-[#706B65] transition group"
                         >
                           <span className="text-[#2C2A29] font-medium capitalize">
                             {item.ingredient_name || `Item #${item.ingredient_id}`}
                           </span>
-                          <span className="text-[10px] text-[#706B65]">Drag to move</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-[#706B65]">Drag</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteIngredient(item.id);
+                              }}
+                              className="text-[#A39D94] hover:text-red-600 font-bold px-1 transition text-sm"
+                              title="Delete ingredient"
+                            >
+                              ×
+                            </button>
+                          </div>
                         </div>
                       ))
                     )}
@@ -331,12 +372,25 @@ export default function App() {
                           key={item.id} 
                           draggable={true}
                           onDragStart={(e) => handleDragStart(e, item.id)}
-                          className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs cursor-grab active:cursor-grabbing hover:border-[#706B65] transition"
+                          className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs cursor-grab active:cursor-grabbing hover:border-[#706B65] transition group"
                         >
                           <span className="text-[#2C2A29] font-medium capitalize">
                             {item.ingredient_name || `Item #${item.ingredient_id}`}
                           </span>
-                          <span className="text-[10px] text-[#706B65]">Drag to move</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-[#706B65]">Drag</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteIngredient(item.id);
+                              }}
+                              className="text-[#A39D94] hover:text-red-600 font-bold px-1 transition text-sm"
+                              title="Delete ingredient"
+                            >
+                              ×
+                            </button>
+                          </div>
                         </div>
                       ))
                     )}
