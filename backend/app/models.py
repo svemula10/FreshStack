@@ -1,31 +1,43 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from .database import Base
 
-recipe_ingredients = Table(
-    "recipe_ingredients",
-    Base.metadata,
-    Column("recipe_id", Integer, ForeignKey("recipes.id"), primary_key=True),
-    Column("ingredient_id", Integer, ForeignKey("ingredients.id"), primary_key=True),
-)
+class Recipe(Base):
+    __tablename__ = "recipes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, index=True)
+    instructions = Column(Text)
+    prep_time = Column(String, nullable=True)
+    cook_time = Column(String, nullable=True)
+    servings = Column(String, nullable=True)
+    rating = Column(String, nullable=True)
+
+    ingredients = relationship("RecipeIngredient", back_populates="recipe")
 
 class Ingredient(Base):
     __tablename__ = "ingredients"
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
+    category = Column(String, default="Pantry")
+    shelf_life_days = Column(Integer, default=30)
+    allergens = Column(String, default="None")
 
-class Recipe(Base):
-    __tablename__ = "recipes"
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, index=True)
-    ingredients = relationship("Ingredient", secondary=recipe_ingredients, lazy="subquery")
+class RecipeIngredient(Base):
+    __tablename__ = "recipe_ingredients"
 
-class InventoryItem(Base):
-    __tablename__ = "inventory_items"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True)
+    recipe_id = Column(Integer, ForeignKey("recipes.id"))
     ingredient_id = Column(Integer, ForeignKey("ingredients.id"))
-    quantity = Column(Float)
-    expiration_date = Column(String, nullable=True)
-    
+    quantity = Column(Float, default=1.0)
+
+    recipe = relationship("Recipe", back_populates="ingredients")
     ingredient = relationship("Ingredient")
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    dietary_preferences = Column(String, default="None")
