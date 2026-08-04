@@ -93,11 +93,20 @@ export default function App() {
     <div className="min-h-screen bg-[#FBF9F5] text-[#2C2A29] font-sans antialiased px-6 py-10 selection:bg-[#E3DCD2]">
       <div className="max-w-4xl mx-auto">
         
-        {/* Calm, Clean Header */}
-        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-12 border-b border-[#E8E2D5] pb-6 gap-6">
-          <div>
-            <h1 className="text-2xl font-serif tracking-tight text-[#1A1817]">FreshStack</h1>
-            <p className="text-sm text-[#706B65] mt-0.5">Your thoughtful virtual pantry and recipe companion</p>
+        {/* Header with Fresh Ingredients Image */}
+        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 border-b border-[#E8E2D5] pb-6 gap-6">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl overflow-hidden border border-[#E5DFD4] shadow-sm flex-shrink-0">
+              <img 
+                src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTMLmsNsqKpothh9W9jBNebfskd3jHwt23Qm92z9rhtIw&s=10" 
+                alt="Fresh ingredients" 
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div>
+              <h1 className="text-2xl font-serif tracking-tight text-[#1A1817]">FreshStack</h1>
+              <p className="text-sm text-[#706B65] mt-0.5">Your thoughtful virtual pantry and recipe companion</p>
+            </div>
           </div>
 
           <nav className="flex gap-2 bg-[#F2EDE4] p-1 rounded-full border border-[#E5DFD4]">
@@ -128,90 +137,133 @@ export default function App() {
         {activeTab === 'storage' && (
           <div className="space-y-10">
             
-            {/* Minimalist Input Card */}
-            <div className="bg-white border border-[#E8E2D5] rounded-2xl p-8 shadow-sm">
-              <h2 className="text-lg font-serif text-[#1A1817] mb-2">Add to Pantry</h2>
-              <p className="text-xs text-[#706B65] mb-6">Type what you brought home to keep your virtual kitchen updated.</p>
-              
-              <form onSubmit={handleAddIngredient} className="flex flex-col sm:flex-row gap-3">
-                <input
-                  type="text"
-                  placeholder="e.g. butter, garlic, fresh basil..."
-                  value={ingredientInput}
-                  onChange={(e) => setIngredientInput(e.target.value)}
-                  className="flex-1 bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#1A1817] placeholder-[#A39D94] focus:outline-none focus:border-[#706B65] text-sm"
+            {/* Input Card with Pantry Background */}
+            <div className="bg-white border border-[#E8E2D5] rounded-2xl p-8 shadow-sm relative overflow-hidden">
+              <div className="absolute right-0 top-0 bottom-0 w-1/3 pointer-events-none hidden sm:block">
+                <img 
+                  src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ1b7g-4IahMgmSCX7FJD5UHepL7hkt00OYLbQnJcXmpw&s=10" 
+                  alt="Pantry background" 
+                  className="w-full h-full object-cover"
                 />
-                
-                <select
-                  value={selectedZone}
-                  onChange={(e) => setSelectedZone(e.target.value as any)}
-                  className="bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#706B65] focus:outline-none focus:border-[#706B65] text-xs font-medium"
-                >
-                  <option value="fridge">Refrigerator</option>
-                  <option value="cabinet">Cabinets</option>
-                  <option value="spices">Spice Drawer</option>
-                </select>
+              </div>
 
-                <button
-                  type="submit"
-                  className="bg-[#2C2A29] hover:bg-[#1A1817] text-white text-xs font-medium px-6 py-3 rounded-xl transition"
-                >
-                  Save Item
-                </button>
-              </form>
+              <div className="relative z-10 max-w-lg">
+                <h2 className="text-lg font-serif text-[#1A1817] mb-2">Add to Pantry</h2>
+                <p className="text-xs text-[#706B65] mb-6">Type what you brought home to keep your virtual kitchen updated.</p>
+                
+                <form onSubmit={handleAddIngredient} className="flex flex-col sm:flex-row gap-3">
+                  <input
+                    type="text"
+                    placeholder="e.g. butter, garlic, fresh basil..."
+                    value={ingredientInput}
+                    onChange={(e) => setIngredientInput(e.target.value)}
+                    className="flex-1 bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#1A1817] placeholder-[#A39D94] focus:outline-none focus:border-[#706B65] text-sm"
+                  />
+                  
+                  <select
+                    value={selectedZone}
+                    onChange={(e) => setSelectedZone(e.target.value as any)}
+                    className="bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#706B65] focus:outline-none focus:border-[#706B65] text-xs font-medium"
+                  >
+                    <option value="fridge">Refrigerator</option>
+                    <option value="cabinet">Cabinets</option>
+                    <option value="spices">Spice Drawer</option>
+                  </select>
+
+                  <button
+                    type="submit"
+                    className="bg-[#2C2A29] hover:bg-[#1A1817] text-white text-xs font-medium px-6 py-3 rounded-xl transition shadow-sm"
+                  >
+                    Save Item
+                  </button>
+                </form>
+              </div>
             </div>
 
-            {/* Clean Section Containers */}
+            {/* Storage Compartments Grid with Working Images */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               
-              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm">
-                <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Refrigerator</h3>
-                <p className="text-[11px] text-[#8C867E] mb-4">Perishables & fresh produce</p>
-                <div className="space-y-2">
-                  {inventory.length === 0 ? (
-                    <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
-                  ) : (
-                    inventory.map((item, idx) => (
-                      <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
-                        <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
-                        <span className="text-[10px] text-[#706B65]">Stored</span>
-                      </div>
-                    ))
-                  )}
+              {/* Refrigerator */}
+              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="h-28 rounded-xl overflow-hidden mb-4 border border-[#EFECE6]">
+                    <img 
+                      src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT5XLsvxTXh4d0ajeF5JvwNGGKEJZBXOZDjf9nUTuE-TQ&s=10" 
+                      alt="Refrigerator items" 
+                      className="w-full h-full object-cover hover:scale-105 transition duration-500"
+                    />
+                  </div>
+                  <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Refrigerator</h3>
+                  <p className="text-[11px] text-[#8C867E] mb-4">Perishables & fresh produce</p>
+                  
+                  <div className="space-y-2">
+                    {inventory.length === 0 ? (
+                      <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
+                    ) : (
+                      inventory.map((item, idx) => (
+                        <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
+                          <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
+                          <span className="text-[10px] text-[#706B65]">Stored</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm">
-                <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Cabinets</h3>
-                <p className="text-[11px] text-[#8C867E] mb-4">Grains & dry staples</p>
-                <div className="space-y-2">
-                  {inventory.length === 0 ? (
-                    <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
-                  ) : (
-                    inventory.map((item, idx) => (
-                      <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
-                        <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
-                        <span className="text-[10px] text-[#706B65]">Stored</span>
-                      </div>
-                    ))
-                  )}
+              {/* Cabinets */}
+              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="h-28 rounded-xl overflow-hidden mb-4 border border-[#EFECE6]">
+                    <img 
+                      src="https://images.unsplash.com/photo-1588854337236-6889d631faa8?auto=format&fit=crop&q=80&w=400" 
+                      alt="Cabinet items" 
+                      className="w-full h-full object-cover hover:scale-105 transition duration-500"
+                    />
+                  </div>
+                  <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Cabinets</h3>
+                  <p className="text-[11px] text-[#8C867E] mb-4">Grains & dry staples</p>
+                  
+                  <div className="space-y-2">
+                    {inventory.length === 0 ? (
+                      <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
+                    ) : (
+                      inventory.map((item, idx) => (
+                        <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
+                          <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
+                          <span className="text-[10px] text-[#706B65]">Stored</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm">
-                <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Spice Drawer</h3>
-                <p className="text-[11px] text-[#8C867E] mb-4">Herbs & seasonings</p>
-                <div className="space-y-2">
-                  {inventory.length === 0 ? (
-                    <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
-                  ) : (
-                    inventory.map((item, idx) => (
-                      <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
-                        <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
-                        <span className="text-[10px] text-[#706B65]">Stored</span>
-                      </div>
-                    ))
-                  )}
+              {/* Spice Drawer */}
+              <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="h-28 rounded-xl overflow-hidden mb-4 border border-[#EFECE6]">
+                    <img 
+                      src="https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&q=80&w=400" 
+                      alt="Spice drawer" 
+                      className="w-full h-full object-cover hover:scale-105 transition duration-500"
+                    />
+                  </div>
+                  <h3 className="text-sm font-semibold text-[#1A1817] mb-1">Spice Drawer</h3>
+                  <p className="text-[11px] text-[#8C867E] mb-4">Herbs & seasonings</p>
+                  
+                  <div className="space-y-2">
+                    {inventory.length === 0 ? (
+                      <p className="text-xs text-[#A39D94] italic py-3">Empty</p>
+                    ) : (
+                      inventory.map((item, idx) => (
+                        <div key={idx} className="bg-[#FBF9F5] border border-[#EFECE6] px-3.5 py-2.5 rounded-lg flex items-center justify-between text-xs">
+                          <span className="text-[#2C2A29] font-medium">Item #{item.ingredient_id}</span>
+                          <span className="text-[10px] text-[#706B65]">Stored</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
 
