@@ -52,10 +52,11 @@ def import_csv_data(file_path="recipes.csv"):
             recipe = Recipe(
                 title=title, 
                 instructions=directions_raw[:2000] if directions_raw else "",
-                prep_time=prep_time,
-                cook_time=cook_time,
-                servings=servings,
-                rating=rating
+                prep_time=row.get("prep_time"),
+                cook_time=row.get("cook_time"),
+                servings=row.get("servings"),
+                rating=row.get("rating"),
+                url=row.get("url")  # <-- Capture URL from dataset
             )
             db.add(recipe)
             db.commit()

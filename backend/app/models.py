@@ -13,6 +13,7 @@ class Recipe(Base):
     cook_time = Column(String, nullable=True)
     servings = Column(String, nullable=True)
     rating = Column(String, nullable=True)
+    url = Column(String, nullable=True)  # <-- Added source URL field
 
     ingredients = relationship("RecipeIngredient", back_populates="recipe")
 
