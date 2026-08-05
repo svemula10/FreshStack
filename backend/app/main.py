@@ -31,28 +31,20 @@ def get_matched_recipes(
         joinedload(models.Inventory.ingredient)
     ).filter(models.Inventory.user_id == user_id).all()
     
-    user_pantry_tokens = set()
-    user_core_tokens = set()
-
+    user_tokens = set()
     for item in user_inventory:
         name = item.ingredient.name if item.ingredient and item.ingredient.name else f"item-{item.ingredient_id}"
-        zone = getattr(item, "zone", "cabinet")
-        
         for word in name.lower().split():
             clean_word = word.strip(".,()'-")
             if len(clean_word) > 2:
-                user_pantry_tokens.add(clean_word)
-                stem = clean_word[:-1] if clean_word.endswith('s') else clean_word
-                user_pantry_tokens.add(stem)
-                
-                # Fridge items, proteins, and fresh produce are core high-impact items
-                if zone == 'fridge' or any(p in clean_word for p in ['chicken', 'beef', 'pork', 'fish', 'turkey', 'shrimp', 'tofu', 'onion', 'garlic', 'apple', 'banana', 'watermelon', 'pepper', 'tomato', 'cheese', 'egg', 'milk']):
-                    user_core_tokens.add(stem)
+                user_tokens.add(clean_word)
+                if clean_word.endswith('s') and len(clean_word) > 3:
+                    user_tokens.add(clean_word[:-1])
 
     if not user_inventory:
         return []
 
-    # 2. Fetch all recipes from database
+    # 2. Fetch all recipes
     all_recipes = db.query(models.Recipe).all()
     unique_matched_recipes_dict = {}
 
@@ -69,9 +61,6 @@ def get_matched_recipes(
             continue
 
         ingredient_list = []
-        has_user_core_match = False
-        matched_secondary_count = 0
-
         for ing in raw_ingredients:
             ing_text = ""
             if hasattr(ing, 'name') and ing.name:
@@ -84,74 +73,80 @@ def get_matched_recipes(
             lines = re.split(r'\n+|•', ing_text)
             for line in lines:
                 cleaned_line = line.strip()
-                cleaned_lower = cleaned_line.lower()
-
                 if not cleaned_line or cleaned_line in ["•", "-", "*"] or len(cleaned_line) <= 1:
                     continue
-
-                modifier_keywords = [
-                    "or more to taste", "or as needed", "to taste", "optional", "thawed",
-                    "juiced", "peeled", "cored", "chopped", "sliced", "halved", "seeded", 
-                    "crushed", "minced", "diced", "grated", "chilled", "cold", "warm", 
-                    "melted", "softened", "cubed", "and cubed", "peeled and chopped"
-                ]
-
-                is_modifier_line = cleaned_lower.startswith(tuple(modifier_keywords)) or cleaned_line in ["Juiced", "Peeled", "Cored", "Chopped", "Sliced", "Cubed", "Seeded", "Chilled", "Cold", "Melted", "Softened", "Thawed"]
-
-                if is_modifier_line and ingredient_list:
-                    ingredient_list[-1] = f"{ingredient_list[-1]} ({cleaned_line})"
+                if cleaned_line.lower() in ["chef john", "allrecipes", "recipe courtesy of", "submitted by", "copyright", "photo by"]:
                     continue
-
-                if cleaned_lower.endswith("x") or cleaned_lower.endswith(":") or cleaned_lower in ["ingredients", "filling:", "sauce:", "garnish:"]:
-                    continue
-
+                
                 final_ing = re.sub(r'^[•\-\*\s]+|[•\-\*\s]+$', '', cleaned_line).strip()
                 if final_ing and final_ing not in ingredient_list:
                     ingredient_list.append(final_ing)
 
-        # --- SUBSTRING ROOT-STEM EVALUATION ---
+        # --- CORE MATCHING ENGINE ---
+        implied_staples = {
+            'salt', 'pepper', 'water', 'oil', 'olive oil', 'butter', 'sugar', 
+            'garlic powder', 'onion powder', 'oregano', 'basil', 'flour', 'milk', 'vanilla', 'black pepper'
+        }
+
+        matched_core_items = 0
         missing_count = 0
-        ignore_words = {"cup", "cups", "tablespoon", "tablespoons", "teaspoon", "teaspoons", "fresh", "chopped", "sliced", "diced", "minced", "whole", "large", "small", "medium", "oz", "pound", "pounds", "clove", "cloves", "pinch", "dash", "salt", "pepper", "water", "oil"}
 
         for ing_str in ingredient_list:
             lower_str = ing_str.lower()
             
-            # Check if any user core token or pantry token appears as a substring inside the ingredient line
-            # (e.g., user token 'chicken' matches inside 'boneless chicken breast halves')
-            matched_core = any(core_token in lower_str for core_token in user_core_tokens)
-            matched_pantry = any(pantry_token in lower_str for pantry_token in user_pantry_tokens)
+            # Check if staple
+            is_staple = any(staple in lower_str for staple in implied_staples) or 'optional' in lower_str
+            if is_staple:
+                continue
 
-            is_culinary_element = 'water' in lower_str and 'watermelon' not in lower_str
-            is_optional = 'optional' in lower_str
+            # Substring token match against user inventory (e.g. user has "chicken" -> matches "3 skinless, boneless chicken breast halves")
+            has_match = any(token in lower_str for token in user_tokens if len(token) > 2)
 
-            if matched_core:
-                has_user_core_match = True
-                matched_secondary_count += 1
-            elif matched_pantry:
-                matched_secondary_count += 1
-            elif not is_culinary_element and not is_optional:
+            if has_match:
+                matched_core_items += 1
+            else:
                 missing_count += 1
 
-        # Instructions cleanup
         raw_instructions = recipe.instructions or ""
+        
+        # Remove common boilerplate trailers first
         cleaned_instructions = re.sub(r'(?:Photo by|Recipe courtesy of|Submitted by|Copyright).*', '', raw_instructions, flags=re.IGNORECASE)
         
         instruction_lines = cleaned_instructions.split('\n')
         filtered_instructions = []
+        
         for line in instruction_lines:
             line_str = line.strip()
             line_lower = line_str.lower()
-            if (not line_str or "photo by" in line_lower or line_lower.startswith("photo") or len(line_str) < 3):
+            
+            if not line_str:
                 continue
+                
+            # Filter out lines that are purely photo credits, URLs, or generic metadata
+            if "photo by" in line_lower or line_lower.startswith(("photo", "http", "www.")):
+                continue
+                
             filtered_instructions.append(line_str)
+
+        # Drop trailing author sign-offs or contributor handles (e.g., "lc206", "Chef John", "Amanda")
+        # If the very last line is short (under 15 characters) and contains NO sentence-ending punctuation like '.', '!', or '?' 
+        # and has no action verbs, it is a username/author tag and must be chopped off!
+        if filtered_instructions:
+            last_line = filtered_instructions[-1]
+            is_likely_username = (
+                len(last_line) < 15 and 
+                not any(punct in last_line for punct in ['.', '!', '?', ',']) and 
+                not any(verb in last_line.lower() for verb in ['preheat', 'rub', 'stuff', 'place', 'roast', 'whisk', 'remove', 'pour', 'transfer', 'tent', 'cut', 'spoon', 'garnish', 'serve', 'cook', 'mix', 'heat'])
+            )
+            if is_likely_username:
+                filtered_instructions.pop()
 
         final_instructions_block = "\n".join(filtered_instructions)
 
-        # CORE RULE: If the recipe requires a core protein you own (like chicken), 
-        # it qualifies to show up, sorted by how many other ingredients you have.
         MAX_MISSING_ALLOWED = 3
 
-        if has_user_core_match and missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
+        # If user has at least one matching core ingredient (like chicken), show the recipe!
+        if matched_core_items > 0 and missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
             unique_matched_recipes_dict[normalized_title] = {
                 "id": recipe.id,
                 "title": recipe.title,
@@ -162,15 +157,15 @@ def get_matched_recipes(
                 "rating": recipe.rating,
                 "url": recipe.url,
                 "missing_ingredient_count": missing_count,
-                "matched_secondary_count": matched_secondary_count,
+                "matched_core_items": matched_core_items,
                 "ingredients": ingredient_list
             }
 
     sorted_recipes = sorted(
         unique_matched_recipes_dict.values(),
         key=lambda r: (
+            -r["matched_core_items"],
             r["missing_ingredient_count"], 
-            -r["matched_secondary_count"], 
             -float(r["rating"]) if r.get("rating") and str(r["rating"]).replace('.', '', 1).isdigit() else 0.0
         )
     )

@@ -8,33 +8,84 @@ def clean_directions(raw_text: str) -> str:
     if not raw_text:
         return ""
     
-    # 1. Split text into lines
     lines = raw_text.splitlines()
     cleaned_lines = []
     
     for i, line in enumerate(lines):
         line_str = line.strip()
-        # Filter out standalone author names or short noise strings at the very beginning 
-        # (e.g., single-word lines that look like names, less than 15 characters, no verbs or punctuation)
-        if i < 3 and len(line_str) < 15 and not any(char in line_str for char in ['.', ',', '!', '?', ' ']) and not line_str.lower().startswith(('step', 'preheat', 'mix', 'combine', 'roast', 'heat')):
-            # Skip likely stray author names like "Amanda"
+        line_lower = line_str.lower()
+        
+        # Skip empty lines, photo credits, or obvious metadata
+        if not line_str or "photo by" in line_lower or line_lower.startswith(("http", "www.")):
             continue
-        if line_str:
-            cleaned_lines.append(line_str)
             
-    # Join back together cleanly
+        cleaned_lines.append(line_str)
+        
+    # Check if the last line is a stray author/username signature (e.g., "TheBritishBaker", "lc206", "Chef John")
+    if cleaned_lines:
+        last_line = cleaned_lines[-1]
+        last_lower = last_line.lower()
+        is_author_tag = (
+            len(last_line) < 20 and
+            not any(punct in last_line for punct in ['.', '!', '?', ',']) and
+            not any(verb in last_lower for verb in ['preheat', 'melt', 'add', 'reduce', 'simmer', 'stir', 'transfer', 'serve', 'cook', 'mix', 'heat', 'bake', 'blend']) and
+            not any(char.isdigit() for char in last_line)
+        )
+        if is_author_tag:
+            cleaned_lines.pop()
+
     result = "\n".join(cleaned_lines)
-    
-    # Also remove common trailing boilerplate if present
     result = re.sub(r'(?:Recipe courtesy of|Submitted by|Copyright).*', '', result, flags=re.IGNORECASE).strip()
     return result
+
+def parse_ingredients(ingredients_raw: str):
+    if not ingredients_raw:
+        return []
+    
+    # If the database block has newlines or bullet points, split by those first
+    if "\n" in ingredients_raw or "•" in ingredients_raw:
+        raw_parts = re.split(r'\n+|•', ingredients_raw)
+    else:
+        # Standard Allrecipes CSVs separate independent items with commas.
+        # But we must avoid splitting descriptive modifiers like "1 Carrot, Diced".
+        # A true new ingredient in a comma list usually starts with a number or fraction.
+        parts = ingredients_raw.split(",")
+        raw_parts = []
+        buffer = ""
+        
+        for part in parts:
+            p_trimmed = part.strip()
+            # Regex to check if fragment starts with a number or fraction (e.g., "1", "½", "4")
+            starts_with_qty = bool(re.match(r'^(\d+|[½¼¾⅓⅔⅛⅜⅝⅞])', p_trimmed))
+            
+            if starts_with_qty or not buffer:
+                if buffer:
+                    raw_parts.append(buffer)
+                buffer = p_trimmed
+            else:
+                # It's a modifier belonging to the previous item (e.g., "Diced" for Carrot)
+                buffer += f", {p_trimmed}"
+                
+        if buffer:
+            raw_parts.append(buffer)
+            
+    final_list = []
+    author_blocklist = ["chef john", "allrecipes", "thebritishbaker", "lc206", "cookin'mama", "cookin mama"]
+    
+    for part in raw_parts:
+        cleaned = part.strip()
+        if not cleaned or cleaned.lower() in author_blocklist:
+            continue
+        if cleaned not in final_list:
+            final_list.append(cleaned)
+            
+    return final_list
 
 def import_csv_data(file_path="recipes.csv"):
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
 
     print(f"Opening {file_path} and importing recipes...")
-    
     ingredient_cache = {}
 
     def get_or_create_ingredient(name: str):
@@ -59,7 +110,7 @@ def import_csv_data(file_path="recipes.csv"):
         count = 0
         
         for row in reader:
-            if count >= 500:  # Import the first 500 recipes for fast MVP testing
+            if count >= 500:
                 break
 
             title = row.get("recipe_name")
@@ -73,10 +124,8 @@ def import_csv_data(file_path="recipes.csv"):
             if not title or not ingredients_raw:
                 continue
 
-            # Clean the directions using our new sanitizer
             final_directions = clean_directions(directions_raw)
-
-            ingredients_list = [ing.strip() for ing in ingredients_raw.split(",") if ing.strip()]
+            ingredients_list = parse_ingredients(ingredients_raw)
 
             recipe = Recipe(
                 title=title, 
@@ -85,14 +134,14 @@ def import_csv_data(file_path="recipes.csv"):
                 cook_time=cook_time,
                 servings=servings,
                 rating=rating,
-                url=row.get("url")  # <-- Capture URL from dataset
+                url=row.get("url")
             )
             db.add(recipe)
             db.commit()
             db.refresh(recipe)
 
             for ing_str in ingredients_list:
-                ing_obj = get_or_create_ingredient(ing_str[:50])
+                ing_obj = get_or_create_ingredient(ing_str[:100])
                 if ing_obj:
                     link = RecipeIngredient(
                         recipe_id=recipe.id, 
