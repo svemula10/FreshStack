@@ -18,6 +18,7 @@ interface Recipe {
   rating?: string;
   url?: string;
   missing_ingredient_count: number;
+  matched_count?: number;
   ingredients?: string[];
 }
 
@@ -29,8 +30,12 @@ export default function App() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [maxTime, setMaxTime] = useState<number>(45);
   const [loading, setLoading] = useState<boolean>(false);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  const [hasMore, setHasMore] = useState<boolean>(true);
+  const [offset, setOffset] = useState<number>(0);
   const [expandedRecipeId, setExpandedRecipeId] = useState<number | null>(null);
   const userId = 1;
+  const LIMIT = 10;
 
   const getSingularStem = (name: string): string => {
     let lower = name.trim().toLowerCase();
@@ -167,19 +172,34 @@ export default function App() {
     );
   };
 
-  const fetchMatchedRecipes = async () => {
-    setLoading(true);
-    setActiveTab('recipes');
+  const fetchMatchedRecipes = async (reset: boolean = true) => {
+    if (reset) {
+      setLoading(true);
+      setActiveTab('recipes');
+      setOffset(0);
+    } else {
+      setLoadingMore(true);
+    }
+
+    const currentOffset = reset ? 0 : offset;
+
     try {
-      const res = await fetch(`http://127.0.0.1:8000/recipes/match/${userId}?max_time=${maxTime}`);
+      const res = await fetch(`http://127.0.0.1:8000/recipes/match/${userId}?max_time=${maxTime}&limit=${LIMIT}&offset=${currentOffset}`);
       if (res.ok) {
         const data = await res.json();
-        setRecipes(data);
+        if (reset) {
+          setRecipes(data);
+        } else {
+          setRecipes(prev => [...prev, ...data]);
+        }
+        setHasMore(data.length === LIMIT);
+        setOffset(currentOffset + LIMIT);
       }
     } catch (err) {
       console.error("Failed to fetch recipes", err);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -187,14 +207,13 @@ export default function App() {
     setExpandedRecipeId(prev => (prev === id ? null : id));
   };
 
-  // Helper to split paragraph instructions into clean numbered step lines
   const formatInstructions = (text: string) => {
-      if (!text) return [];
-      return text
-        .split(/(?<=[.!?])\s+|\n+/)
-        .map(step => step.trim())
-        .filter(step => step.length > 3 && !step.toLowerCase().startsWith('natalie') && step !== '•');
-    };
+    if (!text) return [];
+    return text
+      .split(/(?<=[.!?])\s+|\n+/)
+      .map(step => step.trim())
+      .filter(step => step.length > 3 && !step.toLowerCase().startsWith('natalie') && step !== '•');
+  };
 
   return (
     <div className="min-h-screen bg-[#FBF9F5] text-[#2C2A29] font-sans antialiased px-6 py-10 selection:bg-[#E3DCD2]">
@@ -228,7 +247,7 @@ export default function App() {
               Kitchen Storage
             </button>
             <button
-              onClick={fetchMatchedRecipes}
+              onClick={() => fetchMatchedRecipes(true)}
               className={`px-5 py-2 rounded-full text-xs font-medium transition ${
                 activeTab === 'recipes' 
                   ? 'bg-white text-[#1A1817] shadow-sm' 
@@ -450,7 +469,7 @@ export default function App() {
             {/* Action Flow */}
             <div className="pt-2 text-center">
               <button
-                onClick={fetchMatchedRecipes}
+                onClick={() => fetchMatchedRecipes(true)}
                 className="bg-[#2C2A29] hover:bg-[#1A1817] text-white text-xs font-medium px-8 py-4 rounded-xl shadow-sm transition"
               >
                 Find Recipes You Can Make →
@@ -479,7 +498,7 @@ export default function App() {
                 />
                 <span className="text-[11px] text-[#8C867E] pr-2">m</span>
                 <button
-                  onClick={fetchMatchedRecipes}
+                  onClick={() => fetchMatchedRecipes(true)}
                   className="bg-[#2C2A29] text-white px-3 py-1.5 rounded-lg text-xs transition"
                 >
                   Update
@@ -586,6 +605,19 @@ export default function App() {
                     </div>
                   );
                 })}
+
+                {/* Load More Button */}
+                {hasMore && (
+                  <div className="pt-4 text-center">
+                    <button
+                      onClick={() => fetchMatchedRecipes(false)}
+                      disabled={loadingMore}
+                      className="bg-white border border-[#E8E2D5] hover:border-[#706B65] text-[#2C2A29] text-xs font-medium px-8 py-3.5 rounded-xl shadow-sm transition"
+                    >
+                      {loadingMore ? 'Loading more recipes...' : 'Load More Recipes ↓'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

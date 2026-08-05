@@ -24,6 +24,8 @@ app.add_middleware(
 def get_matched_recipes(
     user_id: int, 
     max_time: Optional[int] = Query(None, description="Maximum total cooking time in minutes"),
+    limit: int = Query(10, description="Number of recipes to return initially"),
+    offset: int = Query(0, description="Offset for pagination"),
     db: Session = Depends(get_db)
 ):
     # 1. Fetch user's inventory
@@ -82,71 +84,44 @@ def get_matched_recipes(
                 if final_ing and final_ing not in ingredient_list:
                     ingredient_list.append(final_ing)
 
-        # --- CORE MATCHING ENGINE ---
+        # --- CORE MATCHING & RANKING ENGINE ---
         implied_staples = {
             'salt', 'pepper', 'water', 'oil', 'olive oil', 'butter', 'sugar', 
             'garlic powder', 'onion powder', 'oregano', 'basil', 'flour', 'milk', 'vanilla', 'black pepper'
         }
 
-        matched_core_items = 0
+        matched_count = 0
         missing_count = 0
 
         for ing_str in ingredient_list:
             lower_str = ing_str.lower()
-            
-            # Check if staple
             is_staple = any(staple in lower_str for staple in implied_staples) or 'optional' in lower_str
             if is_staple:
                 continue
 
-            # Substring token match against user inventory (e.g. user has "chicken" -> matches "3 skinless, boneless chicken breast halves")
             has_match = any(token in lower_str for token in user_tokens if len(token) > 2)
 
             if has_match:
-                matched_core_items += 1
+                matched_count += 1
             else:
                 missing_count += 1
 
         raw_instructions = recipe.instructions or ""
-        
-        # Remove common boilerplate trailers first
         cleaned_instructions = re.sub(r'(?:Photo by|Recipe courtesy of|Submitted by|Copyright).*', '', raw_instructions, flags=re.IGNORECASE)
         
         instruction_lines = cleaned_instructions.split('\n')
-        filtered_instructions = []
+        filtered_instructions = [l.strip() for l in instruction_lines if l.strip() and len(l.strip()) > 2]
         
-        for line in instruction_lines:
-            line_str = line.strip()
-            line_lower = line_str.lower()
-            
-            if not line_str:
-                continue
-                
-            # Filter out lines that are purely photo credits, URLs, or generic metadata
-            if "photo by" in line_lower or line_lower.startswith(("photo", "http", "www.")):
-                continue
-                
-            filtered_instructions.append(line_str)
-
-        # Drop trailing author sign-offs or contributor handles (e.g., "lc206", "Chef John", "Amanda")
-        # If the very last line is short (under 15 characters) and contains NO sentence-ending punctuation like '.', '!', or '?' 
-        # and has no action verbs, it is a username/author tag and must be chopped off!
+        # Clean trailing author names from instructions
         if filtered_instructions:
             last_line = filtered_instructions[-1]
-            is_likely_username = (
-                len(last_line) < 15 and 
-                not any(punct in last_line for punct in ['.', '!', '?', ',']) and 
-                not any(verb in last_line.lower() for verb in ['preheat', 'rub', 'stuff', 'place', 'roast', 'whisk', 'remove', 'pour', 'transfer', 'tent', 'cut', 'spoon', 'garnish', 'serve', 'cook', 'mix', 'heat'])
-            )
-            if is_likely_username:
+            if len(last_line) < 20 and not any(p in last_line for p in ['.', '!', '?', ',']) and not any(v in last_line.lower() for v in ['preheat', 'cook', 'bake', 'mix', 'serve', 'add', 'heat', 'stir']):
                 filtered_instructions.pop()
 
         final_instructions_block = "\n".join(filtered_instructions)
 
-        MAX_MISSING_ALLOWED = 3
-
-        # If user has at least one matching core ingredient (like chicken), show the recipe!
-        if matched_core_items > 0 and missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
+        # RULE: If user owns at least ONE ingredient from the recipe, it qualifies to show up!
+        if matched_count > 0 and ingredient_list:
             unique_matched_recipes_dict[normalized_title] = {
                 "id": recipe.id,
                 "title": recipe.title,
@@ -157,20 +132,23 @@ def get_matched_recipes(
                 "rating": recipe.rating,
                 "url": recipe.url,
                 "missing_ingredient_count": missing_count,
-                "matched_core_items": matched_core_items,
+                "matched_count": matched_count, # Higher matched count = higher on the list
                 "ingredients": ingredient_list
             }
 
+    # Sort top-to-bottom: Most matched ingredients first, then fewest missing items, then rating
     sorted_recipes = sorted(
         unique_matched_recipes_dict.values(),
         key=lambda r: (
-            -r["matched_core_items"],
+            -r["matched_count"],
             r["missing_ingredient_count"], 
             -float(r["rating"]) if r.get("rating") and str(r["rating"]).replace('.', '', 1).isdigit() else 0.0
         )
     )
 
-    return sorted_recipes
+    # Apply pagination slice
+    paginated_recipes = sorted_recipes[offset : offset + limit]
+    return paginated_recipes
 
 
 @app.post("/ingredients/", response_model=schemas.IngredientResponse)
