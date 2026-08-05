@@ -84,7 +84,7 @@ def get_matched_recipes(
                 if final_ing and final_ing not in ingredient_list:
                     ingredient_list.append(final_ing)
 
-        # --- CORE MATCHING & RANKING ENGINE ---
+        # --- PRECISE MATCH & MISSING COUNT COMPUTATION ---
         implied_staples = {
             'salt', 'pepper', 'water', 'oil', 'olive oil', 'butter', 'sugar', 
             'garlic powder', 'onion powder', 'oregano', 'basil', 'flour', 'milk', 'vanilla', 'black pepper'
@@ -99,6 +99,7 @@ def get_matched_recipes(
             if is_staple:
                 continue
 
+            # Check if any user token matches this ingredient line
             has_match = any(token in lower_str for token in user_tokens if len(token) > 2)
 
             if has_match:
@@ -112,7 +113,6 @@ def get_matched_recipes(
         instruction_lines = cleaned_instructions.split('\n')
         filtered_instructions = [l.strip() for l in instruction_lines if l.strip() and len(l.strip()) > 2]
         
-        # Clean trailing author names from instructions
         if filtered_instructions:
             last_line = filtered_instructions[-1]
             if len(last_line) < 20 and not any(p in last_line for p in ['.', '!', '?', ',']) and not any(v in last_line.lower() for v in ['preheat', 'cook', 'bake', 'mix', 'serve', 'add', 'heat', 'stir']):
@@ -120,7 +120,7 @@ def get_matched_recipes(
 
         final_instructions_block = "\n".join(filtered_instructions)
 
-        # RULE: If user owns at least ONE ingredient from the recipe, it qualifies to show up!
+        # Qualification Rule: Any recipe where the user owns at least 1 matching ingredient qualifies
         if matched_count > 0 and ingredient_list:
             unique_matched_recipes_dict[normalized_title] = {
                 "id": recipe.id,
@@ -132,21 +132,22 @@ def get_matched_recipes(
                 "rating": recipe.rating,
                 "url": recipe.url,
                 "missing_ingredient_count": missing_count,
-                "matched_count": matched_count, # Higher matched count = higher on the list
+                "matched_count": matched_count,
                 "ingredients": ingredient_list
             }
 
-    # Sort top-to-bottom: Most matched ingredients first, then fewest missing items, then rating
+    # --- ABSOLUTE MATCHED DENSITY SORTING ---
+    # 1. -r["matched_count"]: Recipes with the HIGHEST number of matches come FIRST.
+    # 2. r["missing_ingredient_count"]: Fewest missing items next.
     sorted_recipes = sorted(
         unique_matched_recipes_dict.values(),
         key=lambda r: (
-            -r["matched_count"],
             r["missing_ingredient_count"], 
+            -r["matched_count"],
             -float(r["rating"]) if r.get("rating") and str(r["rating"]).replace('.', '', 1).isdigit() else 0.0
         )
     )
 
-    # Apply pagination slice
     paginated_recipes = sorted_recipes[offset : offset + limit]
     return paginated_recipes
 
