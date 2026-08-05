@@ -26,17 +26,28 @@ def get_matched_recipes(
     max_time: Optional[int] = Query(None, description="Maximum total cooking time in minutes"),
     db: Session = Depends(get_db)
 ):
-    # 1. Fetch user's inventory item names and build strict token set
-    user_inventory = db.query(models.Inventory).filter(models.Inventory.user_id == user_id).all()
+    # 1. Fetch user's inventory
+    user_inventory = db.query(models.Inventory).options(
+        joinedload(models.Inventory.ingredient)
+    ).filter(models.Inventory.user_id == user_id).all()
+    
     user_pantry_tokens = set()
+    user_core_tokens = set()
+
     for item in user_inventory:
-        name = item.ingredient.name if hasattr(item, 'ingredient') and item.ingredient else f"item-{item.ingredient_id}"
+        name = item.ingredient.name if item.ingredient and item.ingredient.name else f"item-{item.ingredient_id}"
+        zone = getattr(item, "zone", "cabinet")
+        
         for word in name.lower().split():
             clean_word = word.strip(".,()'-")
             if len(clean_word) > 2:
                 user_pantry_tokens.add(clean_word)
-                if clean_word.endswith('s') and len(clean_word) > 3:
-                    user_pantry_tokens.add(clean_word[:-1])
+                stem = clean_word[:-1] if clean_word.endswith('s') else clean_word
+                user_pantry_tokens.add(stem)
+                
+                # Fridge items, proteins, and fresh produce are core high-impact items
+                if zone == 'fridge' or any(p in clean_word for p in ['chicken', 'beef', 'pork', 'fish', 'turkey', 'shrimp', 'tofu', 'onion', 'garlic', 'apple', 'banana', 'watermelon', 'pepper', 'tomato', 'cheese', 'egg', 'milk']):
+                    user_core_tokens.add(stem)
 
     if not user_inventory:
         return []
@@ -58,7 +69,8 @@ def get_matched_recipes(
             continue
 
         ingredient_list = []
-        matched_pantry_count = 0
+        has_user_core_match = False
+        matched_secondary_count = 0
 
         for ing in raw_ingredients:
             ing_text = ""
@@ -97,27 +109,27 @@ def get_matched_recipes(
                 if final_ing and final_ing not in ingredient_list:
                     ingredient_list.append(final_ing)
 
-        # --- PRECISE INGREDIENT MATCHING & COUNTING ---
+        # --- SUBSTRING ROOT-STEM EVALUATION ---
         missing_count = 0
+        ignore_words = {"cup", "cups", "tablespoon", "tablespoons", "teaspoon", "teaspoons", "fresh", "chopped", "sliced", "diced", "minced", "whole", "large", "small", "medium", "oz", "pound", "pounds", "clove", "cloves", "pinch", "dash", "salt", "pepper", "water", "oil"}
+
         for ing_str in ingredient_list:
             lower_str = ing_str.lower()
             
-            # An ingredient matches if a significant word in the ingredient name 
-            # (e.g., "watermelon", "pepper", "salt") is present in the user's pantry tokens.
-            # We ignore common measurements/descriptors like "cups", "tablespoons", "fresh", "chopped".
-            ignore_words = {"cup", "cups", "tablespoon", "tablespoons", "teaspoon", "teaspoons", "fresh", "chopped", "sliced", "diced", "minced", "whole", "large", "small", "medium", "oz", "pound", "pounds", "clove", "cloves", "pinch", "dash"}
-            
-            ing_words = [w.strip(".,()'-") for w in lower_str.split() if w.strip(".,()'-") not in ignore_words and len(w.strip(".,()'-")) > 2]
-            
-            # Check if any core word of this ingredient exists in user inventory tokens
-            has_match = any(word in user_pantry_tokens for word in ing_words)
-            
-            # Only true physical non-food environment elements like water are freebies.
-            is_culinary_element = 'water' in lower_str and 'watermelon' not in lower_str
+            # Check if any user core token or pantry token appears as a substring inside the ingredient line
+            # (e.g., user token 'chicken' matches inside 'boneless chicken breast halves')
+            matched_core = any(core_token in lower_str for core_token in user_core_tokens)
+            matched_pantry = any(pantry_token in lower_str for pantry_token in user_pantry_tokens)
 
-            if has_match:
-                matched_pantry_count += 1
-            elif not is_culinary_element and 'optional' not in lower_str:
+            is_culinary_element = 'water' in lower_str and 'watermelon' not in lower_str
+            is_optional = 'optional' in lower_str
+
+            if matched_core:
+                has_user_core_match = True
+                matched_secondary_count += 1
+            elif matched_pantry:
+                matched_secondary_count += 1
+            elif not is_culinary_element and not is_optional:
                 missing_count += 1
 
         # Instructions cleanup
@@ -135,10 +147,11 @@ def get_matched_recipes(
 
         final_instructions_block = "\n".join(filtered_instructions)
 
-        # Allow recipes missing up to 2 ingredients to show up, provided user owns at least one relevant item
-        MAX_MISSING_ALLOWED = 2
+        # CORE RULE: If the recipe requires a core protein you own (like chicken), 
+        # it qualifies to show up, sorted by how many other ingredients you have.
+        MAX_MISSING_ALLOWED = 3
 
-        if matched_pantry_count > 0 and missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
+        if has_user_core_match and missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
             unique_matched_recipes_dict[normalized_title] = {
                 "id": recipe.id,
                 "title": recipe.title,
@@ -148,8 +161,8 @@ def get_matched_recipes(
                 "servings": recipe.servings,
                 "rating": recipe.rating,
                 "url": recipe.url,
-                "missing_ingredient_count": missing_count,  # Now strictly accurate based on word intersection
-                "matched_pantry_count": matched_pantry_count,
+                "missing_ingredient_count": missing_count,
+                "matched_secondary_count": matched_secondary_count,
                 "ingredients": ingredient_list
             }
 
@@ -157,7 +170,7 @@ def get_matched_recipes(
         unique_matched_recipes_dict.values(),
         key=lambda r: (
             r["missing_ingredient_count"], 
-            -r["matched_pantry_count"], 
+            -r["matched_secondary_count"], 
             -float(r["rating"]) if r.get("rating") and str(r["rating"]).replace('.', '', 1).isdigit() else 0.0
         )
     )
