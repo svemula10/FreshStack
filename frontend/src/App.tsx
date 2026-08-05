@@ -530,11 +530,8 @@ export default function App() {
                       {/* Recipe Card Header Summary */}
                       <div className="flex justify-between items-start gap-4">
                         <div>
-                          <h3 className="text-lg font-serif text-[#1A1817] mb-1 flex items-center gap-2">
+                          <h3 className="text-lg font-serif text-[#1A1817] mb-1">
                             <span>{recipe.title}</span>
-                            <span className="text-xs text-[#A39D94] font-normal">
-                              {isExpanded ? '▲ Hide Details' : '▼ View Details'}
-                            </span>
                           </h3>
                           <div className="flex gap-4 text-xs text-[#8C867E]">
                             {recipe.prep_time && <span>Prep: {recipe.prep_time}</span>}
@@ -543,8 +540,8 @@ export default function App() {
                             {recipe.rating && <span className="text-[#B38B2D]">★ {recipe.rating}</span>}
                           </div>
                         </div>
-                        <span className="bg-[#F2EDE4] text-[#4A453F] border border-[#E5DFD4] px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap">
-                          Missing: {recipe.missing_ingredient_count}
+                        <span className="text-xs text-[#706B65] font-medium whitespace-nowrap hover:text-[#1A1817] transition">
+                          {isExpanded ? '▲ Hide Details' : '▼ View Details'}
                         </span>
                       </div>
 
