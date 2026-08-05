@@ -76,21 +76,31 @@ def get_matched_recipes(
                 if not cleaned_line or cleaned_line in ["•", "-", "*"] or len(cleaned_line) <= 1:
                     continue
 
-                # If the line is a dangling modifier like "Or More To Taste", merge it with the previous ingredient if possible
-                dangling_modifiers = ["or more to taste", "or as needed", "to taste", "optional", "thawed"]
-                if cleaned_lower in dangling_modifiers:
-                    if ingredient_list:
-                        ingredient_list[-1] = f"{ingredient_list[-1]} ({cleaned_line})"
+                # Filter out useless database section headers or stray layout tokens
+                if cleaned_lower.endswith("x") or cleaned_lower.endswith(":") or cleaned_lower in ["ingredients", "filling:", "sauce:", "garnish:"]:
                     continue
 
-                if cleaned_lower.endswith("x") or cleaned_lower.endswith(":") or cleaned_lower in ["ingredients", "filling:", "sauce:", "garnish:"]:
+                # Heuristic Rule for Modifiers / Continuation Lines:
+                # If a line starts with a conjunction ("And", "Or"), lowercase modifier, 
+                # or continuation word, it belongs appended to the previous ingredient line.
+                continuation_starts = (
+                    "and ", "or ", "to ", "chilled", "cold", "warm", "melted", "softened", 
+                    "juiced", "peeled", "cored", "chopped", "sliced", "halved", "seeded", 
+                    "crushed", "minced", "diced", "grated", "cubed", "thawed", "optional"
+                )
+
+                is_modifier_line = cleaned_lower.startswith(continuation_starts) or cleaned_line in ["Juiced", "Peeled", "Cored", "Chopped", "Sliced", "Cubed", "Seeded", "Chilled", "Cold", "Melted", "Softened", "Thawed"]
+
+                if is_modifier_line and ingredient_list:
+                    # Merge seamlessly into the previous ingredient
+                    ingredient_list[-1] = f"{ingredient_list[-1]} ({cleaned_line})"
                     continue
 
                 final_ing = re.sub(r'^[•\-\*\s]+|[•\-\*\s]+$', '', cleaned_line).strip()
                 if final_ing and final_ing not in ingredient_list:
                     ingredient_list.append(final_ing)
 
-                # Check if user has this ingredient in their inventory
+                # Check inventory matching against user tokens
                 has_match = any(token in cleaned_lower for token in user_pantry_tokens if len(token) > 2)
                 if has_match:
                     matched_pantry_count += 1
