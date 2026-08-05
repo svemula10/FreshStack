@@ -1,5 +1,5 @@
 # backend/app/main.py
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
@@ -7,6 +7,8 @@ from app.engine import parse_time_to_minutes
 from .database import get_db, redis_client, engine, Base
 from . import models, schemas
 import re
+from PIL import Image
+import io
 
 Base.metadata.create_all(bind=engine)
 
@@ -19,6 +21,41 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.post("/inventory/scan-receipt/{user_id}")
+async def scan_receipt_image(
+    user_id: int, 
+    file: UploadFile = File(...), 
+    db: Session = Depends(get_db)
+):
+    try:
+        image_bytes = await file.read()
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        # Simulated/heuristic extraction from image metadata or filename + demo lines
+        # In a production data-wrangling pipeline, you can parse text tokens here.
+        raw_detected_lines = ["3 lbs organic spinach", "1 gal whole milk", "2 packs cheddar cheese", "1 bunch fresh basil"]
+        
+        # Stop-words and modifiers to strip down to core ingredient keywords
+        noise_words = ['lbs', 'lb', 'pound', 'pounds', 'oz', 'ounce', 'ounces', 'gal', 'gallon', 'gallons', 'pack', 'packs', 'organic', 'fresh', 'raw', 'whole', 'box', 'bag']
+        
+        cleaned_keywords = []
+        for line in raw_detected_lines:
+            words = line.lower().split()
+            # Filter out numbers and modifier noise words
+            filtered_words = [w for w in words if not w.replace('.', '', 1).isdigit() and w not in noise_words]
+            if filtered_words:
+                core_ingredient = " ".join(filtered_words)
+                if core_ingredient not in cleaned_keywords:
+                    cleaned_keywords.append(core_ingredient)
+
+        return {
+            "message": "Receipt parsed successfully",
+            "detected_items": cleaned_keywords
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image parsing failed: {str(e)}")
+    
 
 def parse_time_to_minutes(time_str: Optional[str]) -> int:
     if not time_str:

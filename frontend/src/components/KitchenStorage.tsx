@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface InventoryItem {
   id: number;
@@ -20,6 +20,8 @@ interface KitchenStorageProps {
   handleDragOver: (e: React.DragEvent) => void;
   handleDrop: (e: React.DragEvent, zone: 'fridge' | 'cabinet' | 'spices') => void;
   fetchMatchedRecipes: (reset?: boolean) => void;
+  userId?: number;
+  fetchInventory?: () => void;
 }
 
 export default function KitchenStorage({
@@ -33,12 +35,104 @@ export default function KitchenStorage({
   handleDragStart,
   handleDragOver,
   handleDrop,
-  fetchMatchedRecipes
+  fetchMatchedRecipes,
+  userId = 1,
+  fetchInventory
 }: KitchenStorageProps) {
+  const [parsingReceipt, setParsingReceipt] = useState<boolean>(false);
+  const [detectedItems, setDetectedItems] = useState<string[]>([]);
+  const [addingParsed, setAddingParsed] = useState<boolean>(false);
+
+  const getSingularStem = (name: string): string => {
+    let lower = name.trim().toLowerCase();
+    if (lower.endsWith('s') && !lower.endsWith('ss') && lower.length > 3) {
+      lower = lower.slice(0, -1);
+    }
+    return lower;
+  };
+
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setParsingReceipt(true);
+    setDetectedItems([]);
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/inventory/scan-receipt/${userId}`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDetectedItems(data.detected_items || []);
+      }
+    } catch (err) {
+      console.error("Receipt parsing failed", err);
+    } finally {
+      setParsingReceipt(false);
+    }
+  };
+
+  const handleCommitParsedItems = async () => {
+    if (detectedItems.length === 0) return;
+
+    setAddingParsed(true);
+    try {
+      let addedCount = 0;
+
+      for (const itemName of detectedItems) {
+        const inputStem = getSingularStem(itemName);
+
+        // Check if item already exists in the user's current inventory (prevent duplicates)
+        const alreadyExists = inventory.some(item => {
+          const existingName = item.ingredient_name || '';
+          return getSingularStem(existingName) === inputStem;
+        });
+
+        if (alreadyExists) {
+          continue; // Skip duplicates automatically
+        }
+
+        // 1. Create or get master ingredient
+        const ingRes = await fetch(`http://127.0.0.1:8000/ingredients/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: itemName, category: 'cabinet' })
+        });
+        
+        if (ingRes.ok) {
+          const ingData = await ingRes.json();
+          // 2. Add to user inventory
+          const invRes = await fetch(`http://127.0.0.1:8000/inventory/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: userId, ingredient_id: ingData.id })
+          });
+          if (invRes.ok) {
+            addedCount++;
+          }
+        }
+      }
+
+      if (fetchInventory) fetchInventory();
+      setDetectedItems([]); // Clear preview list after adding
+      if (addedCount === 0) {
+        alert("All detected items from this receipt are already in your kitchen storage!");
+      }
+    } catch (err) {
+      console.error("Failed to commit parsed receipt items", err);
+    } finally {
+      setAddingParsed(false);
+    }
+  };
+
   return (
     <div className="space-y-10">
       
-      {/* Input Card */}
+      {/* Input Card with Clean Receipt Upload & Staged List Flow */}
       <div className="bg-white border border-[#E8E2D5] rounded-2xl p-8 shadow-sm relative overflow-hidden">
         <div className="absolute right-0 top-0 bottom-0 w-1/3 pointer-events-none hidden sm:block">
           <img 
@@ -48,35 +142,66 @@ export default function KitchenStorage({
           />
         </div>
 
-        <div className="relative z-10 max-w-lg">
-          <h2 className="text-lg font-serif text-[#1A1817] mb-2">Add to Pantry</h2>
-          <p className="text-xs text-[#706B65] mb-4">Type what you bought home. FreshStack will automatically place it in the correct zone!</p>
-          
-          <form onSubmit={handleAddIngredient} className="flex flex-col sm:flex-row gap-3">
-            <input
-              type="text"
-              placeholder="e.g. butter, garlic, fresh basil..."
-              value={ingredientInput}
-              onChange={(e) => {
-                setIngredientInput(e.target.value);
-                if (errorMessage) setErrorMessage(null);
-              }}
-              className="flex-1 bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#1A1817] placeholder-[#A39D94] focus:outline-none focus:border-[#706B65] text-sm"
-            />
+        <div className="relative z-10 max-w-lg space-y-6">
+          <div>
+            <h2 className="text-lg font-serif text-[#1A1817] mb-2">Add to Pantry</h2>
+            
+            <form onSubmit={handleAddIngredient} className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="text"
+                placeholder="e.g. butter, garlic, fresh basil..."
+                value={ingredientInput}
+                onChange={(e) => {
+                  setIngredientInput(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                className="flex-1 bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#1A1817] placeholder-[#A39D94] focus:outline-none focus:border-[#706B65] text-sm"
+              />
 
-            <button
-              type="submit"
-              className="bg-[#2C2A29] hover:bg-[#1A1817] text-white text-xs font-medium px-6 py-3 rounded-xl transition shadow-sm"
-            >
-              Save Item
-            </button>
-          </form>
+              <button
+                type="submit"
+                className="bg-[#2C2A29] hover:bg-[#1A1817] text-white text-xs font-medium px-6 py-3 rounded-xl transition shadow-sm"
+              >
+                Save Item
+              </button>
+            </form>
 
-          {errorMessage && (
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mt-3 transition">
-              {errorMessage}
-            </p>
-          )}
+            {errorMessage && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mt-3 transition">
+                {errorMessage}
+              </p>
+            )}
+          </div>
+
+          {/* Clean Receipt Upload Button */}
+          <div className="pt-4 border-t border-[#F2EDE4] space-y-4">
+            <label className="inline-block bg-[#F2EDE4] border border-[#E5DFD4] text-[#1A1817] text-xs font-medium px-4 py-2.5 rounded-xl cursor-pointer hover:bg-[#E8E2D5] transition">
+              {parsingReceipt ? 'Extracting Key Items...' : 'Upload Receipt 📄'}
+              <input type="file" accept="image/*" onChange={handleReceiptUpload} className="hidden" />
+            </label>
+
+            {/* Staged Items List & Commit Button (Appears ONLY after upload) */}
+            {detectedItems.length > 0 && (
+              <div className="bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl p-4 space-y-3 animate-fadeIn">
+                <h4 className="text-xs font-bold text-[#1A1817] uppercase tracking-wider">Detected Clean Items:</h4>
+                <div className="flex flex-wrap gap-2">
+                  {detectedItems.map((item, idx) => (
+                    <span key={idx} className="bg-white border border-[#E8E2D5] text-[#2C2A29] text-xs px-3 py-1 rounded-lg font-medium shadow-2xs capitalize">
+                      ✓ {item}
+                    </span>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCommitParsedItems}
+                  disabled={addingParsed}
+                  className="w-full mt-2 bg-[#2C2A29] hover:bg-[#1A1817] text-white text-xs font-medium py-2.5 rounded-lg transition shadow-sm"
+                >
+                  {addingParsed ? 'Adding to Pantry...' : 'Add Items From Receipt →'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
