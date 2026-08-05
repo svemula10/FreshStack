@@ -26,17 +26,18 @@ def get_matched_recipes(
     max_time: Optional[int] = Query(None, description="Maximum total cooking time in minutes"),
     db: Session = Depends(get_db)
 ):
-    # 1. Fetch user's inventory item names and build token set
+    # 1. Fetch user's inventory item names and build strict token set
     user_inventory = db.query(models.Inventory).filter(models.Inventory.user_id == user_id).all()
     user_pantry_tokens = set()
     for item in user_inventory:
         name = item.ingredient.name if hasattr(item, 'ingredient') and item.ingredient else f"item-{item.ingredient_id}"
         for word in name.lower().split():
-            user_pantry_tokens.add(word)
-            if word.endswith('s') and len(word) > 3:
-                user_pantry_tokens.add(word[:-1])
+            clean_word = word.strip(".,()'-")
+            if len(clean_word) > 2:
+                user_pantry_tokens.add(clean_word)
+                if clean_word.endswith('s') and len(clean_word) > 3:
+                    user_pantry_tokens.add(clean_word[:-1])
 
-    # If inventory is empty, return no recipes immediately
     if not user_inventory:
         return []
 
@@ -76,46 +77,47 @@ def get_matched_recipes(
                 if not cleaned_line or cleaned_line in ["•", "-", "*"] or len(cleaned_line) <= 1:
                     continue
 
-                # Filter out useless database section headers or stray layout tokens
-                if cleaned_lower.endswith("x") or cleaned_lower.endswith(":") or cleaned_lower in ["ingredients", "filling:", "sauce:", "garnish:"]:
-                    continue
-
-                # Heuristic Rule for Modifiers / Continuation Lines:
-                # If a line starts with a conjunction ("And", "Or"), lowercase modifier, 
-                # or continuation word, it belongs appended to the previous ingredient line.
-                continuation_starts = (
-                    "and ", "or ", "to ", "chilled", "cold", "warm", "melted", "softened", 
+                modifier_keywords = [
+                    "or more to taste", "or as needed", "to taste", "optional", "thawed",
                     "juiced", "peeled", "cored", "chopped", "sliced", "halved", "seeded", 
-                    "crushed", "minced", "diced", "grated", "cubed", "thawed", "optional"
-                )
+                    "crushed", "minced", "diced", "grated", "chilled", "cold", "warm", 
+                    "melted", "softened", "cubed", "and cubed", "peeled and chopped"
+                ]
 
-                is_modifier_line = cleaned_lower.startswith(continuation_starts) or cleaned_line in ["Juiced", "Peeled", "Cored", "Chopped", "Sliced", "Cubed", "Seeded", "Chilled", "Cold", "Melted", "Softened", "Thawed"]
+                is_modifier_line = cleaned_lower.startswith(tuple(modifier_keywords)) or cleaned_line in ["Juiced", "Peeled", "Cored", "Chopped", "Sliced", "Cubed", "Seeded", "Chilled", "Cold", "Melted", "Softened", "Thawed"]
 
                 if is_modifier_line and ingredient_list:
-                    # Merge seamlessly into the previous ingredient
                     ingredient_list[-1] = f"{ingredient_list[-1]} ({cleaned_line})"
+                    continue
+
+                if cleaned_lower.endswith("x") or cleaned_lower.endswith(":") or cleaned_lower in ["ingredients", "filling:", "sauce:", "garnish:"]:
                     continue
 
                 final_ing = re.sub(r'^[•\-\*\s]+|[•\-\*\s]+$', '', cleaned_line).strip()
                 if final_ing and final_ing not in ingredient_list:
                     ingredient_list.append(final_ing)
 
-                # Check inventory matching against user tokens
-                has_match = any(token in cleaned_lower for token in user_pantry_tokens if len(token) > 2)
-                if has_match:
-                    matched_pantry_count += 1
-
-        # --- PRECISE MISSING INGREDIENT COUNTING ---
+        # --- PRECISE INGREDIENT MATCHING & COUNTING ---
         missing_count = 0
         for ing_str in ingredient_list:
             lower_str = ing_str.lower()
-            has_match = any(token in lower_str for token in user_pantry_tokens if len(token) > 2)
             
-            # Only true non-food physical elements like water or salt are freebies.
-            is_culinary_element = any(element in lower_str for element in ['water', 'salt'])
-            is_optional = 'optional' in lower_str
+            # An ingredient matches if a significant word in the ingredient name 
+            # (e.g., "watermelon", "pepper", "salt") is present in the user's pantry tokens.
+            # We ignore common measurements/descriptors like "cups", "tablespoons", "fresh", "chopped".
+            ignore_words = {"cup", "cups", "tablespoon", "tablespoons", "teaspoon", "teaspoons", "fresh", "chopped", "sliced", "diced", "minced", "whole", "large", "small", "medium", "oz", "pound", "pounds", "clove", "cloves", "pinch", "dash"}
+            
+            ing_words = [w.strip(".,()'-") for w in lower_str.split() if w.strip(".,()'-") not in ignore_words and len(w.strip(".,()'-")) > 2]
+            
+            # Check if any core word of this ingredient exists in user inventory tokens
+            has_match = any(word in user_pantry_tokens for word in ing_words)
+            
+            # Only true physical non-food environment elements like water are freebies.
+            is_culinary_element = 'water' in lower_str and 'watermelon' not in lower_str
 
-            if not has_match and not is_optional and not is_culinary_element:
+            if has_match:
+                matched_pantry_count += 1
+            elif not is_culinary_element and 'optional' not in lower_str:
                 missing_count += 1
 
         # Instructions cleanup
@@ -133,11 +135,8 @@ def get_matched_recipes(
 
         final_instructions_block = "\n".join(filtered_instructions)
 
-        # CRITICAL RELEVANCE RULE: 
-        # 1. The recipe must have at least ONE ingredient matching what the user actually owns (matched_pantry_count > 0).
-        #    This prevents orange juice (requiring oranges) from showing up if the user only has milk.
-        # 2. Missing count must be within reasonable threshold (e.g. missing <= 2 items).
-        MAX_MISSING_ALLOWED = 3
+        # Allow recipes missing up to 2 ingredients to show up, provided user owns at least one relevant item
+        MAX_MISSING_ALLOWED = 2
 
         if matched_pantry_count > 0 and missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
             unique_matched_recipes_dict[normalized_title] = {
@@ -149,12 +148,11 @@ def get_matched_recipes(
                 "servings": recipe.servings,
                 "rating": recipe.rating,
                 "url": recipe.url,
-                "missing_ingredient_count": missing_count,
+                "missing_ingredient_count": missing_count,  # Now strictly accurate based on word intersection
                 "matched_pantry_count": matched_pantry_count,
                 "ingredients": ingredient_list
             }
 
-    # Sort top-to-bottom by fewest missing ingredients, then most pantry overlap, then highest rating
     sorted_recipes = sorted(
         unique_matched_recipes_dict.values(),
         key=lambda r: (
