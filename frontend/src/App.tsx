@@ -231,7 +231,10 @@ export default function App() {
 
           <nav className="flex gap-2 bg-[#F2EDE4] p-1 rounded-full border border-[#E5DFD4]">
             <button
-              onClick={() => setActiveTab('storage')}
+              onClick={() => {
+                setActiveTab('storage');
+                setExpandedRecipeId(null); // Clear open dropdowns when switching tabs
+              }}
               className={`px-5 py-2 rounded-full text-xs font-medium transition ${
                 activeTab === 'storage' 
                   ? 'bg-white text-[#1A1817] shadow-sm' 
@@ -241,7 +244,11 @@ export default function App() {
               Kitchen Storage
             </button>
             <button
-              onClick={() => fetchMatchedRecipes(true)}
+              onClick={() => {
+                setActiveTab('recipes');
+                setExpandedRecipeId(null); // Clear open dropdowns when switching to recipe tab
+                fetchMatchedRecipes(true);
+              }}
               className={`px-5 py-2 rounded-full text-xs font-medium transition ${
                 activeTab === 'recipes' 
                   ? 'bg-white text-[#1A1817] shadow-sm' 
