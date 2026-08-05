@@ -293,6 +293,8 @@ export default function App() {
             handleDragOver={handleDragOver}
             handleDrop={handleDrop}
             fetchMatchedRecipes={fetchMatchedRecipes}
+            userId={userId}
+            fetchInventory={fetchInventory}
           />
         )}
 
