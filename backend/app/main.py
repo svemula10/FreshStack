@@ -3,6 +3,7 @@ from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
+from app.engine import parse_time_to_minutes
 from .database import get_db, redis_client, engine, Base
 from . import models, schemas
 import re
@@ -19,15 +20,64 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def parse_time_to_minutes(time_str: Optional[str]) -> int:
+    if not time_str:
+        return 0
+    
+    time_str = str(time_str).lower().strip()
+    total_minutes = 0
+    
+    # Check for hours (e.g., "1 hr", "1 hours", "1.5 hr")
+    hour_match = re.search(r'([\d\.]+)\s*(?:hr|hour|h)', time_str)
+    if hour_match:
+        try:
+            total_minutes += float(hour_match.group(1)) * 60
+        except ValueError:
+            pass
+            
+    # Check for minutes (e.g., "30 mins", "30 minutes", "30 m")
+    min_match = re.search(r'([\d\.]+)\s*(?:min|m)', time_str)
+    if min_match:
+        try:
+            total_minutes += float(min_match.group(1))
+        except ValueError:
+            pass
+            
+    # Fallback: If no explicit unit words were found, but it has digits, check if it's a raw number
+    if total_minutes == 0:
+        # If the string contains a colon like "1:30"
+        if ":" in time_str:
+            parts = time_str.split(":")
+            try:
+                total_minutes = int(parts[0]) * 60 + int(parts[1])
+            except ValueError:
+                pass
+        else:
+            num_match = re.search(r'([\d\.]+)', time_str)
+            if num_match:
+                try:
+                    # If it's a standalone number under 10, assume hours if no mins word exists, 
+                    # otherwise treat as minutes. Safest default for raw integers in recipe DBs is minutes:
+                    val = float(num_match.group(1))
+                    total_minutes += val
+                except ValueError:
+                    pass
+                
+    return int(total_minutes)
 
 @app.get("/recipes/match/{user_id}")
 def get_matched_recipes(
     user_id: int, 
-    max_time: Optional[int] = Query(None, description="Maximum total cooking time in minutes"),
+    max_hours: Optional[int] = Query(0, description="Maximum cooking hours"),
+    max_mins: Optional[int] = Query(0, description="Maximum cooking minutes"),
     limit: int = Query(10, description="Number of recipes to return initially"),
     offset: int = Query(0, description="Offset for pagination"),
     db: Session = Depends(get_db)
 ):
+    # Compute total allowed minutes from side-by-side inputs
+    total_max_minutes = (max_hours or 0) * 60 + (max_mins or 0)
+    effective_max_time = total_max_minutes if total_max_minutes > 0 else None
+
     # 1. Fetch user's inventory
     user_inventory = db.query(models.Inventory).options(
         joinedload(models.Inventory.ingredient)
@@ -57,6 +107,16 @@ def get_matched_recipes(
         normalized_title = recipe.title.strip().lower()
         if normalized_title in unique_matched_recipes_dict:
             continue
+
+        # --- RIGID TIME CONSTRAINT FILTER ---
+        if effective_max_time is not None:
+            prep_mins = parse_time_to_minutes(recipe.prep_time)
+            cook_mins = parse_time_to_minutes(recipe.cook_time)
+            total_recipe_time = prep_mins + cook_mins
+            
+            # If a recipe has a calculable total time and it exceeds the user's limit, drop it!
+            if total_recipe_time > 0 and total_recipe_time > effective_max_time:
+                continue
 
         raw_ingredients = recipe.ingredients if hasattr(recipe, 'ingredients') else []
         if not raw_ingredients:

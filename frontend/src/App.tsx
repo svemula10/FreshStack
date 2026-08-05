@@ -174,7 +174,7 @@ export default function App() {
     );
   };
 
-  const fetchMatchedRecipes = async (reset: boolean = true) => {
+  const fetchMatchedRecipes = async (reset: boolean = true, customHours?: number, customMins?: number) => {
     if (reset) {
       setLoading(true);
       setActiveTab('recipes');
@@ -184,9 +184,11 @@ export default function App() {
     }
 
     const currentOffset = reset ? 0 : offset;
+    const hoursToUse = customHours !== undefined ? customHours : 0;
+    const minsToUse = customMins !== undefined ? customMins : maxTime;
 
     try {
-      const res = await fetch(`http://127.0.0.1:8000/recipes/match/${userId}?max_time=${maxTime}&limit=${LIMIT}&offset=${currentOffset}`);
+      const res = await fetch(`http://127.0.0.1:8000/recipes/match/${userId}?max_hours=${hoursToUse}&max_mins=${minsToUse}&limit=${LIMIT}&offset=${currentOffset}`);
       if (res.ok) {
         const data = await res.json();
         if (reset) {
