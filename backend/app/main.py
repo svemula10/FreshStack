@@ -57,7 +57,7 @@ def get_matched_recipes(
             continue
 
         ingredient_list = []
-        matched_pantry_count = 0  # Tracks how many user items match this recipe
+        matched_pantry_count = 0
 
         for ing in raw_ingredients:
             ing_text = ""
@@ -73,12 +73,17 @@ def get_matched_recipes(
                 cleaned_line = line.strip()
                 cleaned_lower = cleaned_line.lower()
 
-                if (not cleaned_line or 
-                    cleaned_line in ["•", "-", "*"] or 
-                    len(cleaned_line) <= 1 or
-                    cleaned_lower in ["thawed", "or as needed", "to taste", "optional", "ingredients", "filling:", "sauce:", "garnish:"] or
-                    cleaned_lower.endswith("x") or 
-                    cleaned_lower.endswith(":")):
+                if not cleaned_line or cleaned_line in ["•", "-", "*"] or len(cleaned_line) <= 1:
+                    continue
+
+                # If the line is a dangling modifier like "Or More To Taste", merge it with the previous ingredient if possible
+                dangling_modifiers = ["or more to taste", "or as needed", "to taste", "optional", "thawed"]
+                if cleaned_lower in dangling_modifiers:
+                    if ingredient_list:
+                        ingredient_list[-1] = f"{ingredient_list[-1]} ({cleaned_line})"
+                    continue
+
+                if cleaned_lower.endswith("x") or cleaned_lower.endswith(":") or cleaned_lower in ["ingredients", "filling:", "sauce:", "garnish:"]:
                     continue
 
                 final_ing = re.sub(r'^[•\-\*\s]+|[•\-\*\s]+$', '', cleaned_line).strip()
@@ -122,7 +127,7 @@ def get_matched_recipes(
         # 1. The recipe must have at least ONE ingredient matching what the user actually owns (matched_pantry_count > 0).
         #    This prevents orange juice (requiring oranges) from showing up if the user only has milk.
         # 2. Missing count must be within reasonable threshold (e.g. missing <= 2 items).
-        MAX_MISSING_ALLOWED = 2
+        MAX_MISSING_ALLOWED = 3
 
         if matched_pantry_count > 0 and missing_count <= MAX_MISSING_ALLOWED and ingredient_list:
             unique_matched_recipes_dict[normalized_title] = {
