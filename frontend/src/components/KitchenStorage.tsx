@@ -51,16 +51,6 @@ export default function KitchenStorage({
     return lower;
   };
 
-  const getDefaultZone = (name: string): 'fridge' | 'cabinet' | 'spices' => {
-    const lower = name.toLowerCase();
-    const spices = ['salt', 'pepper', 'cinnamon', 'oregano', 'basil', 'cumin', 'paprika', 'thyme', 'rosemary', 'nutmeg', 'chili powder', 'garlic powder', 'onion powder'];
-    const fridge = ['butter', 'milk', 'cheese', 'egg', 'yogurt', 'cream', 'chicken', 'beef', 'pork', 'fish', 'lettuce', 'spinach', 'carrot', 'celery', 'apple', 'tofu', 'mayo'];
-    
-    if (spices.some(s => lower.includes(s))) return 'spices';
-    if (fridge.some(f => lower.includes(f))) return 'fridge';
-    return 'cabinet';
-  };
-
   const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -70,9 +60,6 @@ export default function KitchenStorage({
 
     setParsingReceipt(true);
     setDetectedItems([]);
-    
-    const fileInputTarget = e.target;
-
     try {
       const res = await fetch(`http://127.0.0.1:8000/inventory/scan-receipt/${userId}`, {
         method: 'POST',
@@ -80,29 +67,12 @@ export default function KitchenStorage({
       });
       if (res.ok) {
         const data = await res.json();
-        const rawItems = data.detected_items || data.added_ingredients || [];
-        
-        const trulyNewItems = rawItems.filter((itemName: string) => {
-          const stem = getSingularStem(itemName);
-          return !inventory.some(existing => {
-            const existingName = existing.ingredient_name || '';
-            return getSingularStem(existingName) === stem;
-          });
-        });
-
-        if (trulyNewItems.length === 0) {
-          alert("All items detected in this receipt are already in your kitchen storage!");
-        } else {
-          setDetectedItems(trulyNewItems);
-        }
+        setDetectedItems(data.detected_items || []);
       }
     } catch (err) {
       console.error("Receipt parsing failed", err);
     } finally {
       setParsingReceipt(false);
-      if (fileInputTarget) {
-        fileInputTarget.value = '';
-      }
     }
   };
 
@@ -111,32 +81,46 @@ export default function KitchenStorage({
 
     setAddingParsed(true);
     try {
-      const itemsToCommit = [...detectedItems];
-      setDetectedItems([]);
+      let addedCount = 0;
 
-      for (const itemName of itemsToCommit) {
-        const assignedZone = getDefaultZone(itemName);
+      for (const itemName of detectedItems) {
+        const inputStem = getSingularStem(itemName);
 
+        // Check if item already exists in the user's current inventory (prevent duplicates)
+        const alreadyExists = inventory.some(item => {
+          const existingName = item.ingredient_name || '';
+          return getSingularStem(existingName) === inputStem;
+        });
+
+        if (alreadyExists) {
+          continue; // Skip duplicates automatically
+        }
+
+        // 1. Create or get master ingredient
         const ingRes = await fetch(`http://127.0.0.1:8000/ingredients/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: itemName, category: assignedZone })
+          body: JSON.stringify({ name: itemName, category: 'cabinet' })
         });
         
         if (ingRes.ok) {
           const ingData = await ingRes.json();
-          await fetch(`http://127.0.0.1:8000/inventory/`, {
+          // 2. Add to user inventory
+          const invRes = await fetch(`http://127.0.0.1:8000/inventory/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId, ingredient_id: ingData.id, zone: assignedZone })
+            body: JSON.stringify({ user_id: userId, ingredient_id: ingData.id })
           });
+          if (invRes.ok) {
+            addedCount++;
+          }
         }
       }
 
-      // --- INSTANT SYNC TRIGGER ---
-      if (fetchInventory) {
-        await fetchInventory();
-        setTimeout(() => fetchInventory(), 100);
+      if (fetchInventory) fetchInventory();
+      setDetectedItems([]); // Clear preview list after adding
+      if (addedCount === 0) {
+        alert("All detected items from this receipt are already in your kitchen storage!");
       }
     } catch (err) {
       console.error("Failed to commit parsed receipt items", err);
@@ -196,10 +180,10 @@ export default function KitchenStorage({
               <input type="file" accept="image/*" onChange={handleReceiptUpload} className="hidden" />
             </label>
 
-            {/* Staged Items List & Commit Button */}
+            {/* Staged Items List & Commit Button (Appears ONLY after upload) */}
             {detectedItems.length > 0 && (
               <div className="bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl p-4 space-y-3 animate-fadeIn">
-                <h4 className="text-xs font-bold text-[#1A1817] uppercase tracking-wider">Detected New Items:</h4>
+                <h4 className="text-xs font-bold text-[#1A1817] uppercase tracking-wider">Detected Clean Items:</h4>
                 <div className="flex flex-wrap gap-2">
                   {detectedItems.map((item, idx) => (
                     <span key={idx} className="bg-white border border-[#E8E2D5] text-[#2C2A29] text-xs px-3 py-1 rounded-lg font-medium shadow-2xs capitalize">
