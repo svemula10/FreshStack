@@ -102,13 +102,11 @@ def parse_time_to_minutes(time_str: Optional[str]) -> int:
                 
     return int(total_minutes)
 
-
 @app.get("/recipes/match/{user_id}")
 def get_matched_recipes(
     user_id: int, 
     max_hours: Optional[int] = Query(0, description="Maximum cooking hours"),
     max_mins: Optional[int] = Query(0, description="Maximum cooking minutes"),
-    exclude_allergens: Optional[List[str]] = Query(None, description="List of allergens to exclude, e.g., dairy, gluten, nuts, vegan"),
     limit: int = Query(10, description="Number of recipes to return initially"),
     offset: int = Query(0, description="Offset for pagination"),
     db: Session = Depends(get_db)
@@ -116,17 +114,6 @@ def get_matched_recipes(
     # Compute total allowed minutes from side-by-side inputs
     total_max_minutes = (max_hours or 0) * 60 + (max_mins or 0)
     effective_max_time = total_max_minutes if total_max_minutes > 0 else None
-
-    # Define allergen keyword mapping dictionaries
-    allergen_keywords = {
-        "dairy": ['milk', 'butter', 'cheese', 'cream', 'yogurt', 'whey', 'ghee', 'casein', 'lactose'],
-        "gluten": ['flour', 'wheat', 'barley', 'rye', 'bread', 'pasta', 'semolina', 'brewer'],
-        "nuts": ['peanut', 'almond', 'walnut', 'pecan', 'cashew', 'hazelnut', 'pistachio', 'macadamia', 'nut'],
-        "shellfish": ['shrimp', 'crab', 'lobster', 'clam', 'mussel', 'oyster', 'scallop', 'prawn'],
-        "vegan": ['meat', 'chicken', 'beef', 'pork', 'fish', 'honey', 'gelatin', 'egg', 'milk', 'butter', 'cheese']
-    }
-
-    active_exclusions = [a.lower().strip() for a in (exclude_allergens or []) if a]
 
     # 1. Fetch user's inventory
     user_inventory = db.query(models.Inventory).options(
@@ -163,6 +150,8 @@ def get_matched_recipes(
             prep_mins = parse_time_to_minutes(recipe.prep_time)
             cook_mins = parse_time_to_minutes(recipe.cook_time)
             total_recipe_time = prep_mins + cook_mins
+            
+            # If a recipe has a calculable total time and it exceeds the user's limit, drop it!
             if total_recipe_time > 0 and total_recipe_time > effective_max_time:
                 continue
 
@@ -192,22 +181,6 @@ def get_matched_recipes(
                 if final_ing and final_ing not in ingredient_list:
                     ingredient_list.append(final_ing)
 
-        # --- ALLERGEN & DIETARY CONSTRAINT FILTER (Deterministic Set Check) ---
-        violates_allergen = False
-        if active_exclusions:
-            for ing_str in ingredient_list:
-                lower_ing = ing_str.lower()
-                for exclusion in active_exclusions:
-                    if exclusion in allergen_keywords:
-                        if any(keyword in lower_ing for keyword in allergen_keywords[exclusion]):
-                            violates_allergen = True
-                            break
-                if violates_allergen:
-                    break
-        
-        if violates_allergen:
-            continue  # Drop this recipe instantly using high-speed set evaluation
-
         # --- PRECISE MATCH & MISSING COUNT COMPUTATION ---
         implied_staples = {
             'salt', 'pepper', 'water', 'oil', 'olive oil', 'butter', 'sugar', 
@@ -223,6 +196,7 @@ def get_matched_recipes(
             if is_staple:
                 continue
 
+            # Check if any user token matches this ingredient line
             has_match = any(token in lower_str for token in user_tokens if len(token) > 2)
 
             if has_match:
@@ -243,6 +217,7 @@ def get_matched_recipes(
 
         final_instructions_block = "\n".join(filtered_instructions)
 
+        # Qualification Rule: Any recipe where the user owns at least 1 matching ingredient qualifies
         if matched_count > 0 and ingredient_list:
             unique_matched_recipes_dict[normalized_title] = {
                 "id": recipe.id,
@@ -258,6 +233,9 @@ def get_matched_recipes(
                 "ingredients": ingredient_list
             }
 
+    # --- ABSOLUTE MATCHED DENSITY SORTING ---
+    # 1. -r["matched_count"]: Recipes with the HIGHEST number of matches come FIRST.
+    # 2. r["missing_ingredient_count"]: Fewest missing items next.
     sorted_recipes = sorted(
         unique_matched_recipes_dict.values(),
         key=lambda r: (

@@ -1,5 +1,5 @@
 # backend/app/models.py
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text, Boolean
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -25,13 +25,6 @@ class Ingredient(Base):
     category = Column(String, default="Pantry")
     shelf_life_days = Column(Integer, default=30)
     allergens = Column(String, default="None")
-
-    # --- Added Dietary & Allergen Exclusions Flags ---
-    is_dairy = Column(Boolean, default=False)
-    is_gluten = Column(Boolean, default=False)
-    is_nuts = Column(Boolean, default=False)
-    is_shellfish = Column(Boolean, default=False)
-    is_vegan = Column(Boolean, default=False)
 
 class RecipeIngredient(Base):
     __tablename__ = "recipe_ingredients"
@@ -59,7 +52,6 @@ class Inventory(Base):
     ingredient_id = Column(Integer, ForeignKey("ingredients.id"))
     quantity = Column(Float, default=1.0)
     unit = Column(String, default="units")
-    zone = Column(String, nullable=True)  # <-- Supports virtual kitchen storage zones ('fridge', 'cabinet', 'spices')
 
     user = relationship("User")
     ingredient = relationship("Ingredient")
