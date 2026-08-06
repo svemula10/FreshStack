@@ -20,7 +20,14 @@ interface KitchenStorageProps {
   handleDragOver: (e: React.DragEvent) => void;
   handleDrop: (e: React.DragEvent, zone: 'fridge' | 'cabinet' | 'spices') => void;
   fetchMatchedRecipes: (reset?: boolean) => void;
+  // --- New Bulk Ingestion Props ---
+  bulkText: string;
+  setBulkText: (val: string) => void;
+  isBulkOpen: boolean;
+  setIsBulkOpen: (val: boolean | ((prev: boolean) => boolean)) => void;
+  handleBulkSubmit: (e: React.FormEvent) => void;
 }
+
 
 export default function KitchenStorage({
   inventory,
@@ -33,51 +40,94 @@ export default function KitchenStorage({
   handleDragStart,
   handleDragOver,
   handleDrop,
-  fetchMatchedRecipes
+  fetchMatchedRecipes,
+  bulkText,
+  setBulkText,
+  isBulkOpen,
+  setIsBulkOpen,
+  handleBulkSubmit
 }: KitchenStorageProps) {
   return (
     <div className="space-y-10">
       
-      {/* Input Card */}
-      <div className="bg-white border border-[#E8E2D5] rounded-2xl p-8 shadow-sm relative overflow-hidden">
-        <div className="absolute right-0 top-0 bottom-0 w-1/3 pointer-events-none hidden sm:block">
-          <img 
-            src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ1b7g-4IahMgmSCX7FJD5UHepL7hkt00OYLbQnJcXmpw&s=10" 
-            alt="Pantry background" 
-            className="w-full h-full object-cover"
-          />
+      {/* Input Card & Bulk Paste Section */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        {/* Single Add Card */}
+        <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+          <div>
+            <h2 className="text-lg font-serif text-[#1A1817] mb-2">Add to Pantry</h2>
+            <p className="text-xs text-[#706B65] mb-4">Type what you brought home. FreshStack will automatically place it in the correct zone!</p>
+            
+            <form onSubmit={handleAddIngredient} className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="text"
+                placeholder="e.g. butter, garlic, fresh basil..."
+                value={ingredientInput}
+                onChange={(e) => {
+                  setIngredientInput(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                className="flex-1 bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#1A1817] placeholder-[#A39D94] focus:outline-none focus:border-[#706B65] text-sm"
+              />
+              <button
+                type="submit"
+                className="bg-[#2C2A29] hover:bg-[#1A1817] text-white text-xs font-medium px-6 py-3 rounded-xl transition shadow-sm"
+              >
+                Save Item
+              </button>
+            </form>
+
+            {errorMessage && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mt-3 transition">
+                {errorMessage}
+              </p>
+            )}
+          </div>
         </div>
 
-        <div className="relative z-10 max-w-lg">
-          <h2 className="text-lg font-serif text-[#1A1817] mb-2">Add to Pantry</h2>
-          <p className="text-xs text-[#706B65] mb-4">Type what you bought home. FreshStack will automatically place it in the correct zone!</p>
-          
-          <form onSubmit={handleAddIngredient} className="flex flex-col sm:flex-row gap-3">
-            <input
-              type="text"
-              placeholder="e.g. butter, garlic, fresh basil..."
-              value={ingredientInput}
-              onChange={(e) => {
-                setIngredientInput(e.target.value);
-                if (errorMessage) setErrorMessage(null);
-              }}
-              className="flex-1 bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl px-4 py-3 text-[#1A1817] placeholder-[#A39D94] focus:outline-none focus:border-[#706B65] text-sm"
-            />
+        {/* Quick Receipt Text Paste Card */}
+        <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-lg font-serif text-[#1A1817]">Bulk Receipt Paste</h2>
+              <button 
+                onClick={() => setIsBulkOpen(!isBulkOpen)}
+                type="button"
+                className="text-xs text-[#706B65] hover:text-[#1A1817] underline font-medium"
+              >
+                {isBulkOpen ? "Collapse" : "Open Bulk Add →"}
+              </button>
+            </div>
+            <p className="text-xs text-[#706B65] mb-4">Paste multiple lines of items or text from a digital grocery receipt.</p>
 
-            <button
-              type="submit"
-              className="bg-[#2C2A29] hover:bg-[#1A1817] text-white text-xs font-medium px-6 py-3 rounded-xl transition shadow-sm"
-            >
-              Save Item
-            </button>
-          </form>
-
-          {errorMessage && (
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mt-3 transition">
-              {errorMessage}
-            </p>
-          )}
+            {isBulkOpen ? (
+              <form onSubmit={handleBulkSubmit} className="space-y-3">
+                <textarea
+                  rows={3}
+                  placeholder="Paste receipt text here (e.g., 2x Organic Milk, 1lb Chicken Breast, Garlic...)"
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  className="w-full bg-[#FBF9F5] border border-[#E5DFD4] rounded-xl p-3 text-xs text-[#1A1817] placeholder-[#A39D94] focus:outline-none focus:border-[#706B65]"
+                />
+                <button
+                  type="submit"
+                  className="w-full bg-[#2C2A29] hover:bg-[#1A1817] text-white text-xs font-medium py-2.5 rounded-xl transition"
+                >
+                  Tokenize & Bulk Add
+                </button>
+              </form>
+            ) : (
+              <div 
+                onClick={() => setIsBulkOpen(true)}
+                className="border border-dashed border-[#E5DFD4] rounded-xl p-6 text-center cursor-pointer hover:border-[#706B65] transition bg-[#FBF9F5]/50"
+              >
+                <p className="text-xs text-[#A39D94]">Click to paste raw grocery lists or receipts...</p>
+              </div>
+            )}
+          </div>
         </div>
+
       </div>
 
       {/* Storage Compartments Grid */}

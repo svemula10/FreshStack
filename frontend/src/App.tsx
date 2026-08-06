@@ -36,9 +36,11 @@ export default function App() {
   const [hasMore, setHasMore] = useState<boolean>(true);
   const [offset, setOffset] = useState<number>(0);
   const [expandedRecipeId, setExpandedRecipeId] = useState<number | null>(null);
-  
-  // --- New Allergy Filter State ---
   const [selectedAllergens, setSelectedAllergens] = useState<string[]>([]);
+
+  // --- Bulk Ingestion State ---
+  const [bulkText, setBulkText] = useState<string>('');
+  const [isBulkOpen, setIsBulkOpen] = useState<boolean>(false);
 
   const userId = 1;
   const LIMIT = 10;
@@ -147,6 +149,27 @@ export default function App() {
     }
   };
 
+  const handleBulkSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkText.trim()) return;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/inventory/bulk-text/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_text: bulkText })
+      });
+
+      if (res.ok) {
+        setBulkText('');
+        setIsBulkOpen(false);
+        fetchInventory();
+      }
+    } catch (err) {
+      console.error("Failed to bulk add items", err);
+    }
+  };
+
   const handleDeleteIngredient = async (inventoryId: number) => {
     setInventory(prev => prev.filter(item => item.id !== inventoryId));
 
@@ -197,7 +220,6 @@ export default function App() {
     const minsToUse = customMins !== undefined ? customMins : maxTime;
     const allergensToUse = customAllergens !== undefined ? customAllergens : selectedAllergens;
 
-    // Build query string for multiple selected allergens
     const allergenParams = allergensToUse
       .map(allergen => `exclude_allergens=${encodeURIComponent(allergen)}`)
       .join('&');
@@ -251,7 +273,7 @@ export default function App() {
               onClick={() => {
                 setActiveTab('storage');
                 setExpandedRecipeId(null);
-                setSelectedAllergens([]); // <-- Clears filters when switching to storage
+                setSelectedAllergens([]);
               }}
               className={`px-5 py-2 rounded-full text-xs font-medium transition ${
                 activeTab === 'storage' 
@@ -265,7 +287,7 @@ export default function App() {
               onClick={() => {
                 setActiveTab('recipes');
                 setExpandedRecipeId(null);
-                setSelectedAllergens([]); // <-- Clears filters when clicking Find Recipes fresh
+                setSelectedAllergens([]);
                 fetchMatchedRecipes(true, 0, maxTime, []);
               }}
               className={`px-5 py-2 rounded-full text-xs font-medium transition ${
@@ -293,6 +315,11 @@ export default function App() {
             handleDragOver={handleDragOver}
             handleDrop={handleDrop}
             fetchMatchedRecipes={fetchMatchedRecipes}
+            bulkText={bulkText}
+            setBulkText={setBulkText}
+            isBulkOpen={isBulkOpen}
+            setIsBulkOpen={setIsBulkOpen}
+            handleBulkSubmit={handleBulkSubmit}
           />
         )}
 

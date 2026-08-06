@@ -1,6 +1,7 @@
 # backend/app/main.py
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from app.engine import parse_time_to_minutes
@@ -19,6 +20,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+class BulkReceiptText(BaseModel):
+    raw_text: str
 
 def parse_time_to_minutes(time_str: Optional[str]) -> int:
     if not time_str:
@@ -299,3 +302,59 @@ def delete_inventory_item(inventory_id: int, db: Session = Depends(get_db)):
         db.delete(item)
         db.commit()
     return {"message": "Item deleted"}
+
+
+@app.post("/inventory/bulk-text/{user_id}")
+def bulk_add_inventory_text(user_id: int, payload: BulkReceiptText, db: Session = Depends(get_db)):
+    lines = payload.raw_text.splitlines()
+    added_items = []
+    
+    # Noise words to strip from receipt lines (quantities, prices, units)
+    noise_pattern = re.compile(r'\b(\d+ea|\d+lb|\d+oz|\$\d+\.\d+|\b\d+\b|lb|oz|pkg|org|fresh|pack|ct)\b', re.IGNORECASE)
+
+    for line in lines:
+        cleaned_line = noise_pattern.sub('', line).strip()
+        cleaned_line = re.sub(r'[^\w\s]', '', cleaned_line).strip().lower()
+        
+        if len(cleaned_line) < 2:
+            continue
+            
+        # Check if ingredient exists in master database, else create it
+        ingredient = db.query(models.Ingredient).filter(models.Ingredient.name.ilike(cleaned_line)).first()
+        if not ingredient:
+            # Simple heuristic zone assignment based on common keywords
+            fridge_keywords = ['milk', 'cheese', 'butter', 'egg', 'yogurt', 'cream', 'chicken', 'beef', 'pork', 'fish', 'spinach', 'lettuce', 'tofu']
+            spices_keywords = ['salt', 'pepper', 'cinnamon', 'oregano', 'basil', 'cumin', 'paprika', 'thyme', 'rosemary', 'nutmeg']
+            
+            zone = "cabinet"
+            if any(k in cleaned_line for k in fridge_keywords):
+                zone = "fridge"
+            elif any(k in cleaned_line for k in spices_keywords):
+                zone = "spices"
+
+            ingredient = models.Ingredient(name=cleaned_line.title(), category=zone)
+            db.add(ingredient)
+            db.commit()
+            db.refresh(ingredient)
+        
+        assigned_zone = ingredient.category or "cabinet"
+
+        # Check if user already has this item in inventory
+        existing_inv = db.query(models.Inventory).filter(
+            models.Inventory.user_id == user_id,
+            models.Inventory.ingredient_id == ingredient.id
+        ).first()
+        
+        if not existing_inv:
+            inv_item = models.Inventory(user_id=user_id, ingredient_id=ingredient.id, zone=assigned_zone)
+            db.add(inv_item)
+            db.commit()
+            added_items.append(ingredient.name)
+            
+            # Update Redis cache gracefully if active
+            try:
+                redis_client.sadd(f"user_inventory:{user_id}", ingredient.id)
+            except Exception:
+                pass
+
+    return {"message": "Bulk items successfully added", "added_count": len(added_items), "items": added_items}
