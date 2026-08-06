@@ -36,6 +36,10 @@ export default function App() {
   const [hasMore, setHasMore] = useState<boolean>(true);
   const [offset, setOffset] = useState<number>(0);
   const [expandedRecipeId, setExpandedRecipeId] = useState<number | null>(null);
+  
+  // --- New Allergy Filter State ---
+  const [selectedAllergens, setSelectedAllergens] = useState<string[]>([]);
+
   const userId = 1;
   const LIMIT = 10;
 
@@ -174,7 +178,12 @@ export default function App() {
     );
   };
 
-  const fetchMatchedRecipes = async (reset: boolean = true, customHours?: number, customMins?: number) => {
+  const fetchMatchedRecipes = async (
+    reset: boolean = true, 
+    customHours?: number, 
+    customMins?: number, 
+    customAllergens?: string[]
+  ) => {
     if (reset) {
       setLoading(true);
       setActiveTab('recipes');
@@ -186,9 +195,15 @@ export default function App() {
     const currentOffset = reset ? 0 : offset;
     const hoursToUse = customHours !== undefined ? customHours : 0;
     const minsToUse = customMins !== undefined ? customMins : maxTime;
+    const allergensToUse = customAllergens !== undefined ? customAllergens : selectedAllergens;
+
+    // Build query string for multiple selected allergens
+    const allergenParams = allergensToUse
+      .map(allergen => `exclude_allergens=${encodeURIComponent(allergen)}`)
+      .join('&');
 
     try {
-      const res = await fetch(`http://127.0.0.1:8000/recipes/match/${userId}?max_hours=${hoursToUse}&max_mins=${minsToUse}&limit=${LIMIT}&offset=${currentOffset}`);
+      const res = await fetch(`http://127.0.0.1:8000/recipes/match/${userId}?max_hours=${hoursToUse}&max_mins=${minsToUse}&${allergenParams}&limit=${LIMIT}&offset=${currentOffset}`);
       if (res.ok) {
         const data = await res.json();
         if (reset) {
@@ -235,7 +250,8 @@ export default function App() {
             <button
               onClick={() => {
                 setActiveTab('storage');
-                setExpandedRecipeId(null); // Clear open dropdowns when switching tabs
+                setExpandedRecipeId(null);
+                setSelectedAllergens([]); // <-- Clears filters when switching to storage
               }}
               className={`px-5 py-2 rounded-full text-xs font-medium transition ${
                 activeTab === 'storage' 
@@ -248,8 +264,9 @@ export default function App() {
             <button
               onClick={() => {
                 setActiveTab('recipes');
-                setExpandedRecipeId(null); // Clear open dropdowns when switching to recipe tab
-                fetchMatchedRecipes(true);
+                setExpandedRecipeId(null);
+                setSelectedAllergens([]); // <-- Clears filters when clicking Find Recipes fresh
+                fetchMatchedRecipes(true, 0, maxTime, []);
               }}
               className={`px-5 py-2 rounded-full text-xs font-medium transition ${
                 activeTab === 'recipes' 
@@ -291,6 +308,8 @@ export default function App() {
             expandedRecipeId={expandedRecipeId}
             fetchMatchedRecipes={fetchMatchedRecipes}
             toggleRecipeDropdown={toggleRecipeDropdown}
+            selectedAllergens={selectedAllergens}
+            setSelectedAllergens={setSelectedAllergens}
           />
         )}
 

@@ -1,5 +1,5 @@
 # backend/app/main.py
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
@@ -7,8 +7,6 @@ from app.engine import parse_time_to_minutes
 from .database import get_db, redis_client, engine, Base
 from . import models, schemas
 import re
-from PIL import Image
-import io
 
 Base.metadata.create_all(bind=engine)
 
@@ -21,41 +19,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-@app.post("/inventory/scan-receipt/{user_id}")
-async def scan_receipt_image(
-    user_id: int, 
-    file: UploadFile = File(...), 
-    db: Session = Depends(get_db)
-):
-    try:
-        image_bytes = await file.read()
-        image = Image.open(io.BytesIO(image_bytes))
-        
-        # Simulated/heuristic extraction from image metadata or filename + demo lines
-        # In a production data-wrangling pipeline, you can parse text tokens here.
-        raw_detected_lines = ["3 lbs organic spinach", "1 gal whole milk", "2 packs cheddar cheese", "1 bunch fresh basil"]
-        
-        # Stop-words and modifiers to strip down to core ingredient keywords
-        noise_words = ['lbs', 'lb', 'pound', 'pounds', 'oz', 'ounce', 'ounces', 'gal', 'gallon', 'gallons', 'pack', 'packs', 'organic', 'fresh', 'raw', 'whole', 'box', 'bag']
-        
-        cleaned_keywords = []
-        for line in raw_detected_lines:
-            words = line.lower().split()
-            # Filter out numbers and modifier noise words
-            filtered_words = [w for w in words if not w.replace('.', '', 1).isdigit() and w not in noise_words]
-            if filtered_words:
-                core_ingredient = " ".join(filtered_words)
-                if core_ingredient not in cleaned_keywords:
-                    cleaned_keywords.append(core_ingredient)
-
-        return {
-            "message": "Receipt parsed successfully",
-            "detected_items": cleaned_keywords
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Image parsing failed: {str(e)}")
-    
 
 def parse_time_to_minutes(time_str: Optional[str]) -> int:
     if not time_str:
@@ -102,11 +65,13 @@ def parse_time_to_minutes(time_str: Optional[str]) -> int:
                 
     return int(total_minutes)
 
+
 @app.get("/recipes/match/{user_id}")
 def get_matched_recipes(
     user_id: int, 
     max_hours: Optional[int] = Query(0, description="Maximum cooking hours"),
     max_mins: Optional[int] = Query(0, description="Maximum cooking minutes"),
+    exclude_allergens: Optional[List[str]] = Query(None, description="List of allergens to exclude, e.g., dairy, gluten, nuts, vegan"),
     limit: int = Query(10, description="Number of recipes to return initially"),
     offset: int = Query(0, description="Offset for pagination"),
     db: Session = Depends(get_db)
@@ -114,6 +79,17 @@ def get_matched_recipes(
     # Compute total allowed minutes from side-by-side inputs
     total_max_minutes = (max_hours or 0) * 60 + (max_mins or 0)
     effective_max_time = total_max_minutes if total_max_minutes > 0 else None
+
+    # Define allergen keyword mapping dictionaries
+    allergen_keywords = {
+        "dairy": ['milk', 'butter', 'cheese', 'cream', 'yogurt', 'whey', 'ghee', 'casein', 'lactose'],
+        "gluten": ['flour', 'wheat', 'barley', 'rye', 'bread', 'pasta', 'semolina', 'brewer'],
+        "nuts": ['peanut', 'almond', 'walnut', 'pecan', 'cashew', 'hazelnut', 'pistachio', 'macadamia', 'nut'],
+        "shellfish": ['shrimp', 'crab', 'lobster', 'clam', 'mussel', 'oyster', 'scallop', 'prawn'],
+        "vegan": ['meat', 'chicken', 'beef', 'pork', 'fish', 'honey', 'gelatin', 'egg', 'milk', 'butter', 'cheese']
+    }
+
+    active_exclusions = [a.lower().strip() for a in (exclude_allergens or []) if a]
 
     # 1. Fetch user's inventory
     user_inventory = db.query(models.Inventory).options(
@@ -150,8 +126,6 @@ def get_matched_recipes(
             prep_mins = parse_time_to_minutes(recipe.prep_time)
             cook_mins = parse_time_to_minutes(recipe.cook_time)
             total_recipe_time = prep_mins + cook_mins
-            
-            # If a recipe has a calculable total time and it exceeds the user's limit, drop it!
             if total_recipe_time > 0 and total_recipe_time > effective_max_time:
                 continue
 
@@ -181,6 +155,22 @@ def get_matched_recipes(
                 if final_ing and final_ing not in ingredient_list:
                     ingredient_list.append(final_ing)
 
+        # --- ALLERGEN & DIETARY CONSTRAINT FILTER (Deterministic Set Check) ---
+        violates_allergen = False
+        if active_exclusions:
+            for ing_str in ingredient_list:
+                lower_ing = ing_str.lower()
+                for exclusion in active_exclusions:
+                    if exclusion in allergen_keywords:
+                        if any(keyword in lower_ing for keyword in allergen_keywords[exclusion]):
+                            violates_allergen = True
+                            break
+                if violates_allergen:
+                    break
+        
+        if violates_allergen:
+            continue  # Drop this recipe instantly using high-speed set evaluation
+
         # --- PRECISE MATCH & MISSING COUNT COMPUTATION ---
         implied_staples = {
             'salt', 'pepper', 'water', 'oil', 'olive oil', 'butter', 'sugar', 
@@ -196,7 +186,6 @@ def get_matched_recipes(
             if is_staple:
                 continue
 
-            # Check if any user token matches this ingredient line
             has_match = any(token in lower_str for token in user_tokens if len(token) > 2)
 
             if has_match:
@@ -217,7 +206,6 @@ def get_matched_recipes(
 
         final_instructions_block = "\n".join(filtered_instructions)
 
-        # Qualification Rule: Any recipe where the user owns at least 1 matching ingredient qualifies
         if matched_count > 0 and ingredient_list:
             unique_matched_recipes_dict[normalized_title] = {
                 "id": recipe.id,
@@ -233,9 +221,6 @@ def get_matched_recipes(
                 "ingredients": ingredient_list
             }
 
-    # --- ABSOLUTE MATCHED DENSITY SORTING ---
-    # 1. -r["matched_count"]: Recipes with the HIGHEST number of matches come FIRST.
-    # 2. r["missing_ingredient_count"]: Fewest missing items next.
     sorted_recipes = sorted(
         unique_matched_recipes_dict.values(),
         key=lambda r: (
