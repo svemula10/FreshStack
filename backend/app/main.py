@@ -306,10 +306,17 @@ def delete_inventory_item(inventory_id: int, db: Session = Depends(get_db)):
 
 @app.post("/inventory/bulk-text/{user_id}")
 def bulk_add_inventory_text(user_id: int, payload: BulkReceiptText, db: Session = Depends(get_db)):
-    lines = payload.raw_text.splitlines()
+    # Split by newlines first, then split each line by commas to handle comma-separated lists
+    raw_lines = payload.raw_text.splitlines()
+    lines = []
+    for r_line in raw_lines:
+        parts = r_line.split(',')
+        for p in parts:
+            lines.append(p)
+            
     added_items = []
     
-    # Noise words to strip from receipt lines (quantities, prices, units)
+    # Strip quantities, prices, and common units
     noise_pattern = re.compile(r'\b(\d+ea|\d+lb|\d+oz|\$\d+\.\d+|\b\d+\b|lb|oz|pkg|org|fresh|pack|ct)\b', re.IGNORECASE)
 
     for line in lines:
@@ -322,7 +329,6 @@ def bulk_add_inventory_text(user_id: int, payload: BulkReceiptText, db: Session 
         # Check if ingredient exists in master database, else create it
         ingredient = db.query(models.Ingredient).filter(models.Ingredient.name.ilike(cleaned_line)).first()
         if not ingredient:
-            # Simple heuristic zone assignment based on common keywords
             fridge_keywords = ['milk', 'cheese', 'butter', 'egg', 'yogurt', 'cream', 'chicken', 'beef', 'pork', 'fish', 'spinach', 'lettuce', 'tofu']
             spices_keywords = ['salt', 'pepper', 'cinnamon', 'oregano', 'basil', 'cumin', 'paprika', 'thyme', 'rosemary', 'nutmeg']
             
@@ -339,7 +345,7 @@ def bulk_add_inventory_text(user_id: int, payload: BulkReceiptText, db: Session 
         
         assigned_zone = ingredient.category or "cabinet"
 
-        # Check if user already has this item in inventory
+        # Check if user already has this item in inventory to avoid duplicates
         existing_inv = db.query(models.Inventory).filter(
             models.Inventory.user_id == user_id,
             models.Inventory.ingredient_id == ingredient.id
@@ -351,7 +357,6 @@ def bulk_add_inventory_text(user_id: int, payload: BulkReceiptText, db: Session 
             db.commit()
             added_items.append(ingredient.name)
             
-            # Update Redis cache gracefully if active
             try:
                 redis_client.sadd(f"user_inventory:{user_id}", ingredient.id)
             except Exception:
