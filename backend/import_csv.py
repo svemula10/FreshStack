@@ -82,8 +82,8 @@ def import_csv_data(file_path="recipes.csv"):
         reader = csv.DictReader(f)
         count = 0
         for row in reader:
-            if count >= 500:
-                break
+            #if count >= 500:
+            #    break
             title = row.get("recipe_name")
             if not title or not row.get("ingredients"):
                 continue
