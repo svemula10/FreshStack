@@ -9,6 +9,10 @@ interface Recipe {
   servings?: string;
   rating?: string;
   url?: string;
+  calories?: string;
+  protein?: string;
+  fat?: string;
+  carbs?: string;
   missing_ingredient_count: number;
   matched_count?: number;
   ingredients?: string[];
@@ -68,46 +72,40 @@ export default function RecipeMatcher({
       
       {/* Header and Controls Card */}
       <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 space-y-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="bg-white border border-[#E8E2D5] rounded-2xl p-6 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-sm mb-6">
           <div>
             <h2 className="text-lg font-serif text-[#1A1817]">Matched Recipes</h2>
-            <p className="text-xs text-[#706B65]">Filter by max cooking time and dietary restrictions.</p>
+            <p className="text-xs text-[#706B65]">
+              {loading 
+                ? "Searching recipes..." 
+                : hasMore 
+                  ? `Showing ${recipes.length} loaded recipes (more available)...` 
+                  : `Total recipes found: ${recipes.length}`}
+            </p>
           </div>
           
-          {/* Side-by-Side Hours & Minutes Selectors */}
+          {/* Time Filters & Controls */}
           <div className="flex items-center gap-2 bg-[#FBF9F5] p-1.5 rounded-xl border border-[#E5DFD4]">
-            <span className="text-[11px] font-medium text-[#706B65] pl-2">Max Time:</span>
-            
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                min="0"
-                max="12"
-                value={maxHours}
-                onChange={(e) => setMaxHours(Math.max(0, Number(e.target.value)))}
-                className="w-12 bg-white border border-[#E5DFD4] rounded-lg px-2 py-1 text-[#1A1817] text-center text-xs font-medium focus:outline-none"
-              />
-              <span className="text-[11px] text-[#8C867E]">hr</span>
-            </div>
-
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                min="0"
-                max="59"
-                step="5"
-                value={maxMins}
-                onChange={(e) => setMaxMins(Math.max(0, Number(e.target.value)))}
-                className="w-12 bg-white border border-[#E5DFD4] rounded-lg px-2 py-1 text-[#1A1817] text-center text-xs font-medium focus:outline-none"
-              />
-              <span className="text-[11px] text-[#8C867E] pr-1">min</span>
-            </div>
-
-            <button
+            <label className="text-[11px] font-medium text-[#706B65] px-2">Max Time:</label>
+            <input 
+              type="number" 
+              value={maxHours}
+              onChange={(e) => setMaxHours(Number(e.target.value))}
+              className="w-12 bg-white border border-[#E5DFD4] rounded-lg px-2 py-1 text-[#1A1817] text-center text-xs font-medium focus:outline-none"
+            />
+            <span className="text-[11px] text-[#8C867E]">hr</span>
+            <input 
+              type="number" 
+              value={maxMins}
+              onChange={(e) => setMaxMins(Number(e.target.value))}
+              className="w-12 bg-white border border-[#E5DFD4] rounded-lg px-2 py-1 text-[#1A1817] text-center text-xs font-medium focus:outline-none"
+            />
+            <span className="text-[11px] text-[#8C867E] pr-2">m</span>
+            <button 
               onClick={() => {
                 const totalMins = (maxHours * 60) + maxMins;
                 setMaxTime(totalMins);
-                fetchMatchedRecipes(true, maxHours, maxMins, selectedAllergens);
+                fetchMatchedRecipes(true, maxHours, maxMins);
               }}
               className="bg-[#2C2A29] text-white px-3 py-1.5 rounded-lg text-xs transition"
             >
@@ -190,6 +188,19 @@ export default function RecipeMatcher({
                       className="mt-6 pt-6 border-t border-[#EFECE6] space-y-6 animate-fadeIn cursor-default"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      {/* Nutritional Macros Section */}
+                      {(recipe.calories || recipe.protein || recipe.fat || recipe.carbs) && (
+                        <div>
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-[#706B65] mb-2">Nutritional Information:</h4>
+                          <div className="flex flex-wrap gap-3 bg-[#FBF9F5] p-3 rounded-xl border border-[#EFECE6]">
+                            {recipe.calories && <span className="text-xs text-[#4A453F] bg-white px-2.5 py-1 rounded-lg border border-[#E5DFD4]">🔥 <b>{recipe.calories}</b> Cal</span>}
+                            {recipe.protein && <span className="text-xs text-[#4A453F] bg-white px-2.5 py-1 rounded-lg border border-[#E5DFD4]">🥩 <b>{recipe.protein}</b> Protein</span>}
+                            {recipe.fat && <span className="text-xs text-[#4A453F] bg-white px-2.5 py-1 rounded-lg border border-[#E5DFD4]">🥑 <b>{recipe.fat}</b> Fat</span>}
+                            {recipe.carbs && <span className="text-xs text-[#4A453F] bg-white px-2.5 py-1 rounded-lg border border-[#E5DFD4]">🍞 <b>{recipe.carbs}</b> Carbs</span>}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Ingredients List */}
                       {recipe.ingredients && recipe.ingredients.length > 0 && (
                         <div>
@@ -243,7 +254,7 @@ export default function RecipeMatcher({
             })}
           </div>
 
-          {/* Load More Button Rendered Properly */}
+          {/* Load More Button */}
           {hasMore && (
             <div className="pt-2 text-center pb-4">
               <button
