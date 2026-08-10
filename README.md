@@ -52,13 +52,19 @@ FreshStack/
 ### 1. Prerequisites
 - **Node.js & npm**: required for running the React frontend
 - **Python (3.9+)**: required for running the FastAPI backend server
+  
 ### 2. Clone the Repository (if you haven't downloaded from github)
 ```bash
 git clone https://github.com/svemula10/FreshStack.git
 cd FreshStack
 ```
  
-### 3. Run the Backend
+### 3. Run Frontend and Backend on Two Different Terminals
+
+Open two separate terminal windows to run the services concurrently
+
+Terminal 1: Backend
+
 ```bash
 cd backend
  
@@ -73,7 +79,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
  
-### 4. Run the Frontend
+Terminal 2: Frontend
 ```bash
 cd frontend
  
