@@ -52,7 +52,7 @@ FreshStack/
 ### 1. Prerequisites
 - **Node.js & npm**: required for running the React frontend
 - **Python (3.9+)**: required for running the FastAPI backend server
-### 2. Clone the Repository
+### 2. Clone the Repository (if you haven't downloaded from github)
 ```bash
 git clone https://github.com/svemula10/FreshStack.git
 cd FreshStack
